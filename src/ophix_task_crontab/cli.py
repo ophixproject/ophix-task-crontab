@@ -31,7 +31,7 @@ from task_client.core import create_task, get_tasks
 
 def cmd_sync(args):
     try:
-        tasks = get_tasks()
+        tasks = get_tasks(schedule=args.schedule or None)
     except Exception as e:
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
@@ -49,7 +49,7 @@ def cmd_sync(args):
 
 def cmd_show(args):
     try:
-        tasks = get_tasks()
+        tasks = get_tasks(schedule=args.schedule or None)
     except Exception as e:
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
@@ -137,6 +137,7 @@ def build_parser():
 
     # sync
     p = sub.add_parser("sync", help="Fetch tasks and apply to crontab file.")
+    p.add_argument("--schedule", default="", help="Only fetch tasks from this named schedule (default: all schedules)")
     p.add_argument(
         "--file",
         default=DEFAULT_CRONTAB_FILE,
@@ -150,6 +151,7 @@ def build_parser():
 
     # show
     p = sub.add_parser("show", help="Print the cron block that would be written.")
+    p.add_argument("--schedule", default="", help="Only fetch tasks from this named schedule (default: all schedules)")
     p.add_argument(
         "--user",
         default=DEFAULT_CRONTAB_USER,
