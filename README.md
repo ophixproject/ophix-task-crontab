@@ -8,7 +8,7 @@ Fetches the active task list from an Ophix task server (via `ophix-task-client`)
 
 ## Installation
 
-```
+```bash
 pip install ophix-task-crontab
 ```
 
@@ -20,7 +20,7 @@ Requires Python 3.7+. Writing to `/etc/cron.d/` requires root.
 
 ## Quick start
 
-```
+```bash
 task-client quickstart https://tasks.internal myhost-tasks
 task-crontab sync
 ```
@@ -38,7 +38,7 @@ On each `sync`, `task-crontab`:
 
 ### Sentinel format
 
-```
+```text
 # --- BEGIN OPHIX-TASKS (managed by ophix-task-crontab, do not edit) ---
 0 2 * * * root /opt/myapp/backup.sh  # nightly-backup
 30 9 1 6 * root /opt/myapp/cleanup.sh  # one-time-cleanup
@@ -50,7 +50,7 @@ Do not manually edit content between the sentinels — it will be overwritten on
 ### Task translation
 
 | Server field | Cron output |
-|---|---|
+| --- | --- |
 | `interval` set | Used directly as the cron schedule expression |
 | `run_at` set | Schedule derived from the datetime: `MM HH DD month *` |
 | Neither set | Skipped with a comment line in the output |
@@ -67,7 +67,7 @@ Do not manually edit content between the sentinels — it will be overwritten on
 
 Fetch tasks and apply to the crontab file. Run this regularly (e.g. every 5 minutes) to keep the schedule current.
 
-```
+```bash
 task-crontab sync
 task-crontab sync --file /etc/cron.d/myapp-tasks
 task-crontab sync --user www-data
@@ -76,7 +76,7 @@ task-crontab sync --user www-data
 Options:
 
 | Option | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `--file` | `/etc/cron.d/ophix-tasks` | Crontab file to write |
 | `--user` | `root` | Unix user to run tasks as |
 
@@ -86,7 +86,7 @@ Requires write access to the crontab file (typically root).
 
 Print the cron block that would be written, without writing it. Useful for inspection and debugging.
 
-```
+```bash
 task-crontab show
 task-crontab show --user www-data
 ```
@@ -95,7 +95,7 @@ task-crontab show --user www-data
 
 Remove the ophix-managed block from the crontab file. Leaves all other content intact.
 
-```
+```bash
 task-crontab clear
 task-crontab clear --file /etc/cron.d/myapp-tasks
 ```
@@ -106,7 +106,7 @@ task-crontab clear --file /etc/cron.d/myapp-tasks
 
 Add a `task-crontab sync` entry to run the sync regularly. Place this **outside** the ophix-managed block so it is not overwritten:
 
-```
+```text
 # Ophix task sync — not managed by ophix-task-crontab
 */5 * * * * root /path/to/venv/bin/task-crontab sync >> /var/log/ophix-task-sync.log 2>&1
 ```
@@ -119,7 +119,7 @@ The sync interval determines how quickly schedule changes on the server propagat
 
 You can run multiple sync jobs writing to different files with different users:
 
-```
+```text
 */5 * * * * root /path/to/venv/bin/task-crontab sync --file /etc/cron.d/ophix-root --user root
 */5 * * * * root /path/to/venv/bin/task-crontab sync --file /etc/cron.d/ophix-app --user appuser
 ```
