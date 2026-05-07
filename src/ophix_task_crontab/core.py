@@ -45,6 +45,36 @@ def run_at_to_cron(run_at_str):
     return "{} {} {} {} *".format(dt.minute, dt.hour, dt.day, dt.month)
 
 
+def _build_command(task):
+    # type: (Dict) -> str
+    """
+    Build the full shell command string for a task, including any reporting pipes.
+
+    Reporting logic (server-controlled via report_output / report_error):
+      - Neither: bare command
+      - output only:  command | task-client report <id>
+      - error only:   command 2>&1 1>/dev/null | task-client report <id>
+      - both:         command 2>&1 | task-client report <id>
+    """
+    command = task.get("command", "")
+    task_id = task.get("id")
+    report_output = task.get("report_output", False)
+    report_error = task.get("report_error", False)
+
+    if not (report_output or report_error) or task_id is None:
+        return command
+
+    reporter = "task-client report {}".format(task_id)
+
+    if report_output and report_error:
+        return "{} 2>&1 | {}".format(command, reporter)
+    elif report_output:
+        return "{} | {}".format(command, reporter)
+    else:
+        # stderr only — redirect stderr to stdout, discard stdout
+        return "{} 2>&1 1>/dev/null | {}".format(command, reporter)
+
+
 def task_to_cron_line(task, user):
     # type: (Dict, str) -> Optional[str]
     """
@@ -54,7 +84,6 @@ def task_to_cron_line(task, user):
     the admin is aware something was skipped rather than silently dropped.
     """
     name = task.get("name", "unnamed")
-    command = task.get("command", "")
     run_at = task.get("run_at")
     interval = task.get("interval", "").strip()
 
@@ -64,6 +93,8 @@ def task_to_cron_line(task, user):
         schedule = interval
     else:
         return "# SKIPPED (no run_at or interval): {}".format(name)
+
+    command = _build_command(task)
 
     return "{schedule} {user} {command}  # {name}".format(
         schedule=schedule,
