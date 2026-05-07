@@ -1,8 +1,8 @@
 # ophix-task-crontab
 
-Crontab Tier 2 client for [Ophix](https://ophixproject.com) task scheduling.
+Crontab Tier 2 client for [Ophix Project](https://ophixproject.com) task scheduling.
 
-Fetches the active task list from an Ophix task server (via `ophix-task-client`) and writes a managed block to a `cron.d` file. The managed block is fully reconstructed on every sync — no line-by-line diffing.
+Fetches the task list from an Ophix task server via `ophix-task-client` and writes a managed block to a `/etc/cron.d/` file. The entire block is reconstructed on every sync.
 
 ---
 
@@ -12,116 +12,120 @@ Fetches the active task list from an Ophix task server (via `ophix-task-client`)
 pip install ophix-task-crontab
 ```
 
-`ophix-task-client` is a dependency and will be installed automatically. Configure `ophix-task-client` first (run `task-client quickstart`) before using `task-crontab`.
-
-Requires Python 3.7+. Writing to `/etc/cron.d/` requires root.
+`ophix-task-client` is a required dependency and is installed automatically. Bootstrap with `task-client quickstart` before using task-crontab.
 
 ---
 
-## Quick start
+## How It Works
 
-```bash
-task-client quickstart https://tasks.internal myhost-tasks
-task-crontab sync
-```
-
----
-
-## How it works
-
-On each `sync`, `task-crontab`:
-
-1. Fetches the active task list from the task server via `task-client`
-2. Translates each task to a cron entry (see Translation below)
-3. Replaces the managed block in the crontab file between sentinel comments
-4. Leaves all content outside the sentinels untouched
-
-### Sentinel format
+task-crontab writes a sentinel-delimited block to a cron.d file:
 
 ```text
 # --- BEGIN OPHIX-TASKS (managed by ophix-task-crontab, do not edit) ---
-0 2 * * * root /opt/myapp/backup.sh  # nightly-backup
-30 9 1 6 * root /opt/myapp/cleanup.sh  # one-time-cleanup
+# Nightly backup script
+0 2 * * * root /opt/backup.sh | task-client report 1  # nightly-backup
+# [disabled] 30 9 * * * root /opt/cleanup.sh  # disabled-cleanup
 # --- END OPHIX-TASKS ---
 ```
 
-Do not manually edit content between the sentinels — it will be overwritten on the next sync.
+- Content outside the sentinels is preserved
+- Disabled tasks are written as commented-out lines (visible but not active)
+- Descriptions appear as comment lines above the cron entry
+- One-off tasks (`run_at`) are converted to a pinned cron expression
 
-### Task translation
+Output handling (`stdout_handling` / `stderr_handling`) on each task controls shell redirects:
 
-| Server field | Cron output |
-| --- | --- |
-| `interval` set | Used directly as the cron schedule expression |
-| `run_at` set | Schedule derived from the datetime: `MM HH DD month *` |
-| Neither set | Skipped with a comment line in the output |
-
-**One-off tasks (`run_at`):** The cron expression pins the minute, hour, day, and month but leaves the year as `*`. Without a year field, the entry would fire again the following year — however, `ends_at` (set automatically by the server, or explicitly by the operator) causes the task to disappear from the API response after its window closes. The next sync removes the crontab entry before it can fire again.
-
-**Time bounds (`starts_at` / `ends_at`):** Enforced server-side. Tasks outside their active window are not returned by the API and therefore not written to the crontab. No client-side date checking is required.
+```text
+report → command | task-client report <id>
+null   → command > /dev/null
+file   → command >> /path/to/log
+merge  → stderr merged with stdout (2>&1)
+```
 
 ---
 
-## CLI reference
+## Commands
 
-### `task-crontab sync`
+### `sync`
 
-Fetch tasks and apply to the crontab file. Run this regularly (e.g. every 5 minutes) to keep the schedule current.
+Fetch tasks and apply to the crontab file.
 
 ```bash
 task-crontab sync
-task-crontab sync --file /etc/cron.d/myapp-tasks
-task-crontab sync --user www-data
+task-crontab sync --schedule server-maintenance
+task-crontab sync --user www-data --file /etc/cron.d/ophix-www
 ```
 
-Options:
-
-| Option | Default | Description |
+| Argument | Default | Description |
 | --- | --- | --- |
+| `--schedule` | (all) | Only fetch tasks from this named Schedule |
 | `--file` | `/etc/cron.d/ophix-tasks` | Crontab file to write |
 | `--user` | `root` | Unix user to run tasks as |
 
-Requires write access to the crontab file (typically root).
+Requires write permission to the target file. Run as root or via sudo.
 
-### `task-crontab show`
+### `show`
 
-Print the cron block that would be written, without writing it. Useful for inspection and debugging.
+Print the cron block that would be written, without writing it.
 
 ```bash
 task-crontab show
-task-crontab show --user www-data
+task-crontab show --schedule server-maintenance --user www-data
 ```
 
-### `task-crontab clear`
+### `clear`
 
-Remove the ophix-managed block from the crontab file. Leaves all other content intact.
+Remove the ophix-managed block from the crontab file.
 
 ```bash
 task-crontab clear
-task-crontab clear --file /etc/cron.d/myapp-tasks
+task-crontab clear --file /etc/cron.d/ophix-www
 ```
+
+### `import`
+
+Parse an existing crontab and create tasks on the server. Bootstraps existing cron jobs into Ophix.
+
+```bash
+# Import current user's crontab (crontab -l)
+task-crontab import --schedule server-maintenance
+
+# Import from a specific file
+task-crontab import --schedule server-maintenance --file /etc/cron.d/myapp
+```
+
+| Argument | Required | Description |
+| --- | --- | --- |
+| `--schedule` | Yes | Schedule name to import into |
+| `--file` | No | File to read (default: `crontab -l`) |
+
+The client must have `can_update` access to the Schedule. Tasks with a duplicate command are skipped. After import, run `task-crontab sync` to apply from the server.
 
 ---
 
-## Recommended cron setup
+## Multi-Schedule and Multi-User Setup
 
-Add a `task-crontab sync` entry to run the sync regularly. Place this **outside** the ophix-managed block so it is not overwritten:
+A single host can manage multiple cron.d files, each populated from a different Schedule:
 
-```text
-# Ophix task sync — not managed by ophix-task-crontab
-*/5 * * * * root /path/to/venv/bin/task-crontab sync >> /var/log/ophix-task-sync.log 2>&1
+```bash
+# System maintenance jobs (run as root)
+task-crontab sync --schedule server-maintenance --file /etc/cron.d/ophix-root --user root
+
+# Web server jobs (run as www-data)
+task-crontab sync --schedule www-data-tasks --file /etc/cron.d/ophix-www --user www-data
 ```
 
-The sync interval determines how quickly schedule changes on the server propagate to the host. Five minutes is a reasonable default for most workloads; reduce it if you need tighter timing for one-off tasks.
+A single client may hold access to multiple Schedules simultaneously. There is no server-enforced limit.
 
 ---
 
-## Multiple crontab files
+## Automating the Sync
 
-You can run multiple sync jobs writing to different files with different users:
+Add the sync call as a root cron entry outside the managed block:
 
 ```text
-*/5 * * * * root /path/to/venv/bin/task-crontab sync --file /etc/cron.d/ophix-root --user root
-*/5 * * * * root /path/to/venv/bin/task-crontab sync --file /etc/cron.d/ophix-app --user appuser
+# /etc/cron.d/ophix-tasks-sync
+*/15 * * * * root /opt/venv/bin/task-crontab sync --schedule server-maintenance
 ```
 
-All syncs pull from the same task server using the same client credentials. Filtering by user is done by creating separate Schedules on the server and linking the appropriate one to this client — the Tier 2 then applies a `--user` flag to run those tasks as the correct OS user.
+Or define it as a task in a separate Schedule and bootstrap that Schedule's cron.d entry manually.
