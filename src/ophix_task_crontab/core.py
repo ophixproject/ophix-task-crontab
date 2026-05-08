@@ -155,7 +155,8 @@ def task_to_cron_line(task, user):
 
     parts = []
     if description and enabled:
-        parts.append("# {}".format(description))
+        for line in description.splitlines():
+            parts.append("# {}".format(line))
     if enabled:
         parts.append(cron_line)
     else:
