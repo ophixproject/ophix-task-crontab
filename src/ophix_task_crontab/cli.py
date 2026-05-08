@@ -31,7 +31,7 @@ from task_client.core import create_task, get_tasks
 
 def cmd_sync(args):
     try:
-        tasks = get_tasks(schedule=args.schedule or None)
+        tasks = get_tasks(schedule=args.schedule or None, scheduler="cron")
     except Exception as e:
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
@@ -49,7 +49,7 @@ def cmd_sync(args):
 
 def cmd_show(args):
     try:
-        tasks = get_tasks(schedule=args.schedule or None)
+        tasks = get_tasks(schedule=args.schedule or None, scheduler="cron")
     except Exception as e:
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
