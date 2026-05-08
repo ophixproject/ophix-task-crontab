@@ -88,6 +88,7 @@ def cmd_import(args):
     created = 0
     skipped = 0
     errors = 0
+    schedule_reported = False
 
     for entry in entries:
         try:
@@ -101,6 +102,9 @@ def cmd_import(args):
             task_status = result.get("status")
             task_id = result.get("id")
             if task_status == "created":
+                if result.get("schedule_created") and not schedule_reported:
+                    print("  (created schedule '{}' on the server)".format(args.schedule))
+                    schedule_reported = True
                 created += 1
                 print("  created  #{}: {} ({})".format(task_id, entry["name"], entry["command"][:60]))
             elif task_status == "skipped":
