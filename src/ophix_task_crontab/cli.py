@@ -4,17 +4,12 @@ ophix_task_crontab.cli
 Command-line interface for the ophix-task-crontab Tier 2 client.
 
 Entry point: task-crontab (registered in pyproject.toml).
-
-Commands:
-    sync   — fetch tasks from the server and apply to the crontab file
-    show   — print the cron block that would be written, without writing
-    clear  — remove the ophix-managed block from the crontab file
-    import — parse an existing crontab and create tasks on the server
 """
 
-import argparse
 import sys
+import types
 
+from client_core.parser import make_main
 from ophix_task_crontab._version import __version__
 from ophix_task_crontab.core import (
     DEFAULT_CRONTAB_FILE,
@@ -25,9 +20,12 @@ from ophix_task_crontab.core import (
     show_crontab,
     sync_crontab,
 )
-
 from task_client.core import create_task, get_tasks
 
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
 
 def cmd_sync(args):
     try:
@@ -104,100 +102,74 @@ def cmd_import(args):
             task_id = result.get("id")
             if task_status == "created":
                 created += 1
-                print("  created  #{}: {} ({})".format(
-                    task_id, entry["name"], entry["command"][:60]
-                ))
+                print("  created  #{}: {} ({})".format(task_id, entry["name"], entry["command"][:60]))
             elif task_status == "skipped":
                 skipped += 1
-                print("  skipped  #{} (command already exists): {}".format(
-                    task_id, entry["command"][:60]
-                ))
+                print("  skipped  #{} (command already exists): {}".format(task_id, entry["command"][:60]))
         except Exception as e:
             errors += 1
             print("  error       {}: {}".format(entry["command"][:60], e))
 
-    print("\nImport complete: {} created, {} skipped, {} errors.".format(
-        created, skipped, errors
-    ))
+    print("\nImport complete: {} created, {} skipped, {} errors.".format(created, skipped, errors))
 
 
-def build_parser():
-    # type: () -> argparse.ArgumentParser
-    parser = argparse.ArgumentParser(
-        prog="task-crontab",
-        description="Apply ophix-tasks schedules to a cron.d file.",
-    )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="task-crontab {}".format(__version__),
-    )
-
-    sub = parser.add_subparsers(dest="command", metavar="COMMAND")
-
-    # sync
-    p = sub.add_parser("sync", help="Fetch tasks and apply to crontab file.")
-    p.add_argument("--schedule", default="", help="Only fetch tasks from this named schedule (default: all schedules)")
-    p.add_argument(
-        "--file",
-        default=DEFAULT_CRONTAB_FILE,
-        help="Crontab file to write (default: {})".format(DEFAULT_CRONTAB_FILE),
-    )
-    p.add_argument(
-        "--user",
-        default=DEFAULT_CRONTAB_USER,
-        help="Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER),
-    )
-
-    # show
-    p = sub.add_parser("show", help="Print the cron block that would be written.")
-    p.add_argument("--schedule", default="", help="Only fetch tasks from this named schedule (default: all schedules)")
-    p.add_argument(
-        "--user",
-        default=DEFAULT_CRONTAB_USER,
-        help="Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER),
-    )
-
-    # clear
-    p = sub.add_parser("clear", help="Remove the ophix-managed block from the crontab file.")
-    p.add_argument(
-        "--file",
-        default=DEFAULT_CRONTAB_FILE,
-        help="Crontab file to modify (default: {})".format(DEFAULT_CRONTAB_FILE),
-    )
-
-    # import
-    p = sub.add_parser("import", help="Parse an existing crontab and create tasks on the server.")
-    p.add_argument("--schedule", required=True, help="Schedule name to import tasks into")
-    p.add_argument(
-        "--file",
-        default=None,
-        help="Crontab file to read (default: reads from 'crontab -l')",
-    )
-
-    return parser
-
+# ---------------------------------------------------------------------------
+# Command registry
+# ---------------------------------------------------------------------------
 
 COMMANDS = {
-    "sync": cmd_sync,
-    "show": cmd_show,
-    "clear": cmd_clear,
-    "import": cmd_import,
+    "sync": {
+        "help": "Fetch tasks from the server and apply to the crontab file.",
+        "arguments": [
+            {"name": "--schedule", "default": "",
+             "help": "Only fetch tasks from this named schedule (default: all)"},
+            {"name": "--file", "default": DEFAULT_CRONTAB_FILE,
+             "help": "Crontab file to write (default: {})".format(DEFAULT_CRONTAB_FILE)},
+            {"name": "--user", "default": DEFAULT_CRONTAB_USER,
+             "help": "Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER)},
+        ],
+        "handler": cmd_sync,
+    },
+
+    "show": {
+        "help": "Print the cron block that would be written, without writing it.",
+        "arguments": [
+            {"name": "--schedule", "default": "",
+             "help": "Only fetch tasks from this named schedule (default: all)"},
+            {"name": "--user", "default": DEFAULT_CRONTAB_USER,
+             "help": "Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER)},
+        ],
+        "handler": cmd_show,
+    },
+
+    "clear": {
+        "help": "Remove the ophix-managed block from the crontab file.",
+        "arguments": [
+            {"name": "--file", "default": DEFAULT_CRONTAB_FILE,
+             "help": "Crontab file to modify (default: {})".format(DEFAULT_CRONTAB_FILE)},
+        ],
+        "handler": cmd_clear,
+    },
+
+    "import": {
+        "help": "Parse an existing crontab and create tasks on the server.",
+        "arguments": [
+            {"name": "--schedule", "required": True,
+             "help": "Schedule name to import tasks into"},
+            {"name": "--file", "default": None,
+             "help": "Crontab file to read (default: reads from 'crontab -l')"},
+        ],
+        "handler": cmd_import,
+    },
 }
 
+_CONFIG = types.SimpleNamespace(
+    prog="task-crontab",
+    description="Apply ophix-tasks schedules to a cron.d file.",
+    version=__version__,
+)
 
-def main():
-    parser = build_parser()
-    args = parser.parse_args()
-    if not args.command:
-        parser.print_help()
-        sys.exit(0)
-    handler = COMMANDS.get(args.command)
-    if handler:
-        handler(args)
-    else:
-        parser.print_help()
-        sys.exit(1)
+main = make_main(_CONFIG, COMMANDS)
 
 
 if __name__ == "__main__":
