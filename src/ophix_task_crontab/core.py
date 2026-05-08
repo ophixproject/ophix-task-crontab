@@ -170,7 +170,9 @@ def build_managed_block(tasks, user):
     """Build the full managed cron block including sentinels."""
     lines = [SENTINEL_BEGIN]
     for task in tasks:
+        lines.append("")
         lines.append(task_to_cron_line(task, user))
+    lines.append("")
     lines.append(SENTINEL_END)
     return "\n".join(lines) + "\n"
 
