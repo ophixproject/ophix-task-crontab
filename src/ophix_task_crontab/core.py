@@ -259,13 +259,34 @@ def _looks_like_username(token):
     return bool(_USERNAME_RE.match(token)) and "/" not in token
 
 
+_INTERPRETER_NAMES = frozenset([
+    "python", "python3", "python2",
+    "bash", "sh", "zsh", "dash",
+    "perl", "ruby", "node", "nodejs",
+    "php", "lua", "tclsh",
+])
+
+
 def _command_basename(command):
     # type: (str) -> str
-    """Derive a short task name from the first token of a command."""
-    first = command.split()[0] if command.strip() else "task"
-    base = os.path.basename(first)
-    name = os.path.splitext(base)[0]
-    return name or "imported-task"
+    """Derive a short task name from the command.
+
+    When the first token is a known interpreter (python, bash, etc.),
+    use the basename of the next token (the script) instead, so that
+    'python get_prices.py arg' yields 'get_prices' not 'python'.
+    """
+    tokens = command.split()
+    if not tokens:
+        return "imported-task"
+    first = os.path.basename(tokens[0])
+    first_stem = os.path.splitext(first)[0]
+    if first_stem in _INTERPRETER_NAMES and len(tokens) > 1:
+        next_token = tokens[1]
+        if not next_token.startswith("-"):
+            base = os.path.basename(next_token)
+            name = os.path.splitext(base)[0]
+            return name or first_stem
+    return first_stem or "imported-task"
 
 
 def _parse_cron_line(line, comments):
