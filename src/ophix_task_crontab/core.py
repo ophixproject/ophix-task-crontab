@@ -289,6 +289,93 @@ def _command_basename(command):
     return first_stem or "imported-task"
 
 
+def _parse_redirections(command):
+    # type: (str) -> tuple
+    """
+    Strip shell output redirections from a command string and map them to
+    ophix task handling fields.
+
+    Returns (cleaned_command, stdout_handling, stderr_handling, log_file).
+
+    Recognised patterns (scanned right-to-left so order doesn't matter):
+      > /dev/null       stdout=null
+      >> /dev/null      stdout=null
+      > /path/to/file   stdout=file, log_file=/path/to/file
+      >> /path/to/file  stdout=file, log_file=/path/to/file
+      2>/dev/null       stderr=null   (with or without space after 2>)
+      2>>/dev/null      stderr=null
+      2>/path/file      stderr=file
+      2>&1              stderr=merge
+    """
+    tokens = command.split()
+    stdout_handling = "inherit"
+    stderr_handling = "inherit"
+    log_file = ""
+    consumed = set()  # type: set
+
+    i = len(tokens) - 1
+    while i >= 0:
+        tok = tokens[i]
+
+        # stderr redirections
+        if tok in ("2>&1",):
+            stderr_handling = "merge"
+            consumed.add(i)
+            i -= 1
+            continue
+
+        if tok.startswith("2>>") or tok.startswith("2>"):
+            target = tok[3:] if tok.startswith("2>>") else tok[2:]
+            if not target and i + 1 < len(tokens) and i + 1 not in consumed:
+                target = tokens[i + 1]
+                consumed.add(i + 1)
+            if target in ("/dev/null", "/dev/null"):
+                stderr_handling = "null"
+            elif target:
+                stderr_handling = "file"
+                if not log_file:
+                    log_file = target
+            consumed.add(i)
+            i -= 1
+            continue
+
+        # stdout redirections (bare > or >>)
+        if tok in (">", ">>"):
+            if i + 1 < len(tokens) and i + 1 not in consumed:
+                target = tokens[i + 1]
+                consumed.add(i + 1)
+                if target == "/dev/null":
+                    stdout_handling = "null"
+                else:
+                    stdout_handling = "file"
+                    if not log_file:
+                        log_file = target
+            consumed.add(i)
+            i -= 1
+            continue
+
+        if tok.startswith(">>") or (tok.startswith(">") and not tok.startswith("2>")):
+            target = tok[2:] if tok.startswith(">>") else tok[1:]
+            if not target and i + 1 < len(tokens) and i + 1 not in consumed:
+                target = tokens[i + 1]
+                consumed.add(i + 1)
+            if target == "/dev/null":
+                stdout_handling = "null"
+            elif target:
+                stdout_handling = "file"
+                if not log_file:
+                    log_file = target
+            consumed.add(i)
+            i -= 1
+            continue
+
+        # Stop scanning once we hit a non-redirection token
+        break
+
+    cleaned = " ".join(t for j, t in enumerate(tokens) if j not in consumed)
+    return cleaned, stdout_handling, stderr_handling, log_file
+
+
 def _parse_cron_line(line, comments):
     # type: (str, List[str]) -> Optional[Dict]
     """
@@ -327,11 +414,16 @@ def _parse_cron_line(line, comments):
     if not command:
         return None
 
+    command, stdout_handling, stderr_handling, log_file = _parse_redirections(command)
+
     return {
         "schedule": schedule,
         "command": command,
         "name": _command_basename(command),
         "description": " ".join(comments),
+        "stdout_handling": stdout_handling,
+        "stderr_handling": stderr_handling,
+        "log_file": log_file,
     }
 
 

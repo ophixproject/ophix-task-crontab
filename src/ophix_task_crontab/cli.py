@@ -98,6 +98,9 @@ def cmd_import(args):
                 command=entry["command"],
                 description=entry["description"],
                 interval=entry["schedule"] if not entry["schedule"].startswith("@") or True else "",
+                stdout_handling=entry.get("stdout_handling", "inherit"),
+                stderr_handling=entry.get("stderr_handling", "inherit"),
+                log_file=entry.get("log_file", ""),
             )
             task_status = result.get("status")
             task_id = result.get("id")
