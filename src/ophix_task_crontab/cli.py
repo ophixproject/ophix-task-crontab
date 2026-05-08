@@ -94,6 +94,7 @@ def cmd_import(args):
         try:
             result = create_task(
                 schedule=args.schedule,
+                scheduler="cron",
                 name=entry["name"],
                 command=entry["command"],
                 description=entry["description"],
