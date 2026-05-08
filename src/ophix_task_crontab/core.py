@@ -139,7 +139,7 @@ def task_to_cron_line(task, user):
     run_at = task.get("run_at")
     interval = task.get("interval", "").strip()
     description = (task.get("description") or "").strip()
-    enabled = task.get("enabled", True)
+    enabled = task.get("enabled", True) and not task.get("paused", False)
 
     if run_at:
         schedule = run_at_to_cron(run_at)
