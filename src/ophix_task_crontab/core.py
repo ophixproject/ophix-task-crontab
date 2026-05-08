@@ -412,7 +412,7 @@ def _parse_cron_line(line, comments):
         "schedule": schedule,
         "command": command,
         "name": _command_basename(command),
-        "description": " ".join(comments),
+        "description": "\n".join(comments),
         "stdout_handling": stdout_handling,
         "stderr_handling": stderr_handling,
         "log_file": log_file,
