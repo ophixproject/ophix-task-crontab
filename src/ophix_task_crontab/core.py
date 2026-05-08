@@ -297,15 +297,9 @@ def _parse_redirections(command):
 
     Returns (cleaned_command, stdout_handling, stderr_handling, log_file).
 
-    Recognised patterns (scanned right-to-left so order doesn't matter):
-      > /dev/null       stdout=null
-      >> /dev/null      stdout=null
-      > /path/to/file   stdout=file, log_file=/path/to/file
-      >> /path/to/file  stdout=file, log_file=/path/to/file
-      2>/dev/null       stderr=null   (with or without space after 2>)
-      2>>/dev/null      stderr=null
-      2>/path/file      stderr=file
-      2>&1              stderr=merge
+    Handles both combined (>/dev/null) and spaced (> /dev/null) forms.
+    Scans right-to-left; stops at the first token that is neither a
+    redirection operator nor a redirection target.
     """
     tokens = command.split()
     stdout_handling = "inherit"
@@ -317,59 +311,56 @@ def _parse_redirections(command):
     while i >= 0:
         tok = tokens[i]
 
-        # stderr redirections
-        if tok in ("2>&1",):
+        # 2>&1
+        if tok == "2>&1":
             stderr_handling = "merge"
             consumed.add(i)
             i -= 1
             continue
 
+        # Combined stderr: 2>/dev/null  2>>/dev/null  2>/path
         if tok.startswith("2>>") or tok.startswith("2>"):
-            target = tok[3:] if tok.startswith("2>>") else tok[2:]
-            if not target and i + 1 < len(tokens) and i + 1 not in consumed:
-                target = tokens[i + 1]
-                consumed.add(i + 1)
-            if target in ("/dev/null", "/dev/null"):
-                stderr_handling = "null"
-            elif target:
-                stderr_handling = "file"
-                if not log_file:
+            sep = 3 if tok.startswith("2>>") else 2
+            target = tok[sep:]
+            if target:
+                stderr_handling = "null" if target == "/dev/null" else "file"
+                if stderr_handling == "file" and not log_file:
                     log_file = target
-            consumed.add(i)
-            i -= 1
-            continue
+                consumed.add(i)
+                i -= 1
+                continue
 
-        # stdout redirections (bare > or >>)
-        if tok in (">", ">>"):
-            if i + 1 < len(tokens) and i + 1 not in consumed:
-                target = tokens[i + 1]
-                consumed.add(i + 1)
-                if target == "/dev/null":
-                    stdout_handling = "null"
-                else:
-                    stdout_handling = "file"
-                    if not log_file:
-                        log_file = target
-            consumed.add(i)
-            i -= 1
-            continue
-
+        # Combined stdout: >/dev/null  >>/dev/null  >/path
         if tok.startswith(">>") or (tok.startswith(">") and not tok.startswith("2>")):
-            target = tok[2:] if tok.startswith(">>") else tok[1:]
-            if not target and i + 1 < len(tokens) and i + 1 not in consumed:
-                target = tokens[i + 1]
-                consumed.add(i + 1)
-            if target == "/dev/null":
-                stdout_handling = "null"
-            elif target:
-                stdout_handling = "file"
-                if not log_file:
+            sep = 2 if tok.startswith(">>") else 1
+            target = tok[sep:]
+            if target:
+                stdout_handling = "null" if target == "/dev/null" else "file"
+                if stdout_handling == "file" and not log_file:
+                    log_file = target
+                consumed.add(i)
+                i -= 1
+                continue
+
+        # Spaced form: current token is the target, previous token is the operator.
+        # e.g.  "... > /dev/null"  "... >> /var/log/foo.log"  "... 2> /dev/null"
+        if i > 0 and tokens[i - 1] in (">", ">>", "2>", "2>>"):
+            target = tok
+            op = tokens[i - 1]
+            if op in (">", ">>"):
+                stdout_handling = "null" if target == "/dev/null" else "file"
+                if stdout_handling == "file" and not log_file:
+                    log_file = target
+            else:
+                stderr_handling = "null" if target == "/dev/null" else "file"
+                if stderr_handling == "file" and not log_file:
                     log_file = target
             consumed.add(i)
-            i -= 1
+            consumed.add(i - 1)
+            i -= 2
             continue
 
-        # Stop scanning once we hit a non-redirection token
+        # Not a redirection token or target — stop scanning
         break
 
     cleaned = " ".join(t for j, t in enumerate(tokens) if j not in consumed)
