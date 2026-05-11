@@ -9,6 +9,8 @@ Entry point: task-crontab (registered in pyproject.toml).
 import sys
 import types
 
+import requests
+
 from client_core.parser import make_main
 from ophix_task_crontab._version import __version__
 from ophix_task_crontab.core import (
@@ -114,6 +116,15 @@ def cmd_import(args):
             elif task_status == "skipped":
                 skipped += 1
                 print("  skipped  #{} (command already exists): {}".format(task_id, entry["command"][:60]))
+        except requests.exceptions.HTTPError as e:
+            errors += 1
+            detail = ""
+            if e.response is not None:
+                try:
+                    detail = " — {}".format(e.response.json())
+                except Exception:
+                    detail = " — {}".format(e.response.text[:200])
+            print("  error       {}: {}{}".format(entry["command"][:60], e, detail))
         except Exception as e:
             errors += 1
             print("  error       {}: {}".format(entry["command"][:60], e))
