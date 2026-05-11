@@ -257,9 +257,26 @@ _SPECIAL_SCHEDULES = frozenset(
 )
 
 
-def _looks_like_username(token):
-    # type: (str) -> bool
-    return bool(_USERNAME_RE.match(token)) and "/" not in token
+# Commands that look like usernames but are never used as cron.d usernames.
+_KNOWN_COMMANDS = frozenset([
+    "sudo", "env", "nice", "nohup", "ionice", "timeout", "runuser",
+])
+
+
+def _looks_like_username(token, next_token):
+    # type: (str, str) -> bool
+    """Return True only when token plausibly is a cron.d username.
+
+    A username must match the username regex, must not be a known command,
+    and must be followed by something that looks like a command — an absolute
+    path or a known interpreter. This prevents bare commands like 'date' or
+    'curl' from being mistaken for usernames when reading user crontabs.
+    """
+    if not _USERNAME_RE.match(token) or "/" in token:
+        return False
+    if token in _KNOWN_COMMANDS:
+        return False
+    return next_token.startswith("/") or next_token in _INTERPRETER_NAMES
 
 
 _INTERPRETER_NAMES = frozenset([
@@ -400,7 +417,7 @@ def _parse_cron_line(line, comments):
         return None
 
     # Detect cron.d format: first token of rest looks like a username
-    if len(rest) >= 2 and _looks_like_username(rest[0]):
+    if len(rest) >= 2 and _looks_like_username(rest[0], rest[1]):
         command = " ".join(rest[1:])
     else:
         command = " ".join(rest)
