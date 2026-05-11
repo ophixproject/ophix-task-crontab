@@ -99,7 +99,9 @@ task-crontab import --schedule server-maintenance --file /etc/cron.d/myapp
 | `--schedule` | Yes | Schedule name to import into |
 | `--file` | No | File to read (default: `crontab -l`) |
 
-The client must have `can_update` access to the Schedule. Tasks with a duplicate command are skipped. After import, run `task-crontab sync` to apply from the server.
+The client must have `can_update` access to the Schedule. Tasks with a duplicate command and interval are skipped. After import, run `task-crontab sync` to apply from the server.
+
+> **Use full paths for commands.** Cron runs with a minimal `PATH`, so bare command names like `date` or `curl` may fail at runtime. Full paths (`/usr/bin/date`) also avoid an import parsing ambiguity: the importer detects cron.d format by checking whether the first word after the schedule looks like a username, and a bare command name with no `/` can be misidentified. If you see a `command may not be blank` error during import, replace the bare command with its full path.
 
 ---
 
