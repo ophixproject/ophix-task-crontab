@@ -111,18 +111,19 @@ def _build_command(task):
         if stderr == "report":
             stderr = "inherit"
 
-    reporter = "task-client report {}".format(task_id) if task_id is not None else None
-
     # Both stdout and stderr go to the reporter
     if stdout == "report" and stderr in ("report", "merge"):
+        reporter = "task-client report {} --stream both".format(task_id) if task_id is not None else None
         return "{} 2>&1 | {}".format(command, reporter)
 
     # Only stdout goes to the reporter; stderr has its own redirect
     if stdout == "report":
+        reporter = "task-client report {} --stream stdout".format(task_id) if task_id is not None else None
         return "{}{} | {}".format(command, _stderr_suffix(stderr, log_file), reporter)
 
     # Only stderr goes to the reporter; stdout has its own redirect (or is discarded)
     if stderr == "report":
+        reporter = "task-client report {} --stream stderr".format(task_id) if task_id is not None else None
         return "{}{} 2>&1 1>/dev/null | {}".format(command, _stdout_suffix(stdout, log_file), reporter)
 
     # No reporting — just redirects
