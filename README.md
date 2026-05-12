@@ -47,12 +47,17 @@ Override with `--format user` or `--format crond`.
 
 Output handling (`stdout_handling` / `stderr_handling`) on each task controls shell redirects:
 
-```text
-report → command | task-client report <id>
-null   → command > /dev/null
-file   → command >> /path/to/log
-merge  → stderr merged with stdout (2>&1)
-```
+| stdout | stderr | Result |
+| --- | --- | --- |
+| `report` | `inherit` | `command \| task-client report <id> --stream stdout` |
+| `report` | `report` or `merge` | `command 2>&1 \| task-client report <id> --stream both` |
+| `null` | `report` | `command > /dev/null 2>&1 1>/dev/null \| task-client report <id> --stream stderr` |
+| `null` | `inherit` | `command > /dev/null` |
+| `file` | `merge` | `command >> /path/to/log 2>&1` |
+
+`task-client report` receives output via a pipe (single stream). When both stdout and stderr go to the reporter they must be merged first — `stderr=report` and `stderr=merge` produce the same shell construct. When they go to different destinations they get independent redirects.
+
+For non-standard handling, set both fields to `inherit` and write redirections directly in the command field — the command is written verbatim to the crontab.
 
 ---
 
