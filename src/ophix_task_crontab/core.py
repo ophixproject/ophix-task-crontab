@@ -172,7 +172,7 @@ def task_to_cron_line(task, user, fmt=FORMAT_CROND):
     if paused:
         parts.append("# [paused] {}".format(cron_line_base))
     else:
-        parts.append("{}  # {}".format(cron_line_base, name))
+        parts.append(cron_line_base)
 
     return "\n".join(parts)
 
