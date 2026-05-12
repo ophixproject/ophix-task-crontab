@@ -45,9 +45,14 @@ DEFAULT_CRONTAB_USER = "root"
 FORMAT_CROND = "crond"  # cron.d style: includes username field between schedule and command
 FORMAT_USER = "user"    # user crontab style: no username field
 
-# task-client lives in the same venv bin directory as this process.
-# Using the full path ensures cron (which runs with a minimal PATH) can find it.
-_TASK_CLIENT = os.path.join(os.path.dirname(sys.executable), "task-client")
+# Both binaries live in the same venv bin directory as this process.
+# Using full paths ensures cron (which runs with a minimal PATH) can find them.
+_VENV_BIN = os.path.dirname(sys.executable)
+_TASK_CLIENT = os.path.join(_VENV_BIN, "task-client")
+_TASK_CRONTAB = os.path.join(_VENV_BIN, "task-crontab")
+
+DEFAULT_SYNC_INTERVAL = "*/15 * * * *"
+_BOOTSTRAP_COMMENT = "# Bootstrapping line — keeps the managed block below in sync. DO NOT REMOVE."
 
 
 # ---------------------------------------------------------------------------
@@ -267,6 +272,137 @@ def sync_user_crontab(tasks):
     proc = subprocess.run(["crontab", "-"], input=new_content, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError("crontab - failed: {}".format(proc.stderr.strip()))
+
+
+def _has_bootstrap(content, schedule):
+    # type: (str, str) -> bool
+    """Return True if a bootstrapping sync line for this schedule already exists."""
+    marker = "task-crontab sync --schedule {}".format(schedule)
+    for line in content.splitlines():
+        if not line.strip().startswith("#") and marker in line:
+            return True
+    return False
+
+
+def _make_bootstrap_line(schedule, interval, user=None, fmt=FORMAT_USER):
+    # type: (str, str, Optional[str], str) -> str
+    """Build the bootstrapping cron line (with comment) for the given schedule."""
+    cmd = "{} sync --schedule {}".format(_TASK_CRONTAB, schedule)
+    if fmt == FORMAT_CROND:
+        return "{}\n{} {} {}\n".format(_BOOTSTRAP_COMMENT, interval, user or DEFAULT_CRONTAB_USER, cmd)
+    return "{}\n{} {}\n".format(_BOOTSTRAP_COMMENT, interval, cmd)
+
+
+def _dedup_entries(content, task_commands):
+    # type: (str, set) -> Tuple[str, int]
+    """
+    Remove crontab entries whose parsed command matches any in task_commands.
+
+    Returns (new_content, removed_count). Only removes entries outside the
+    managed sentinel block. Preceding comment lines are removed with the entry.
+    """
+    lines = content.splitlines(keepends=True)
+    result = []
+    pending_comments = []  # type: List[str]
+    in_sentinel = False
+    removed = 0
+
+    for line in lines:
+        stripped = line.strip()
+
+        if stripped == SENTINEL_BEGIN:
+            in_sentinel = True
+            result.extend(pending_comments)
+            pending_comments = []
+            result.append(line)
+            continue
+        if stripped == SENTINEL_END:
+            in_sentinel = False
+            result.append(line)
+            continue
+        if in_sentinel:
+            result.append(line)
+            continue
+
+        if not stripped:
+            result.extend(pending_comments)
+            pending_comments = []
+            result.append(line)
+            continue
+
+        if stripped.startswith("#"):
+            pending_comments.append(line)
+            continue
+
+        entry = _parse_cron_line(stripped, [])
+        if entry and entry["command"] in task_commands:
+            pending_comments = []
+            removed += 1
+            continue
+
+        result.extend(pending_comments)
+        pending_comments = []
+        result.append(line)
+
+    result.extend(pending_comments)
+    return "".join(result), removed
+
+
+def _apply_install(content, tasks, schedule, interval, user, fmt):
+    # type: (str, List[Dict], str, str, str, str) -> Tuple[str, bool, int]
+    """
+    Core install logic shared by install_crontab and install_user_crontab.
+
+    Returns (new_content, bootstrap_added, entries_removed).
+    """
+    task_commands = {t["command"] for t in tasks}
+    content, removed = _dedup_entries(content, task_commands)
+
+    bootstrap_added = False
+    if not _has_bootstrap(content, schedule):
+        bootstrap = _make_bootstrap_line(schedule, interval, user=user, fmt=fmt)
+        content = bootstrap + "\n" + (content if content.strip() else "")
+        bootstrap_added = True
+
+    stripped, _ = _strip_managed_block(content)
+    if stripped and not stripped.endswith("\n"):
+        stripped += "\n"
+    new_content = stripped + build_managed_block(tasks, user, fmt=fmt)
+    return new_content, bootstrap_added, removed
+
+
+def install_crontab(tasks, schedule, interval=DEFAULT_SYNC_INTERVAL,
+                    crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_USER, fmt=FORMAT_CROND):
+    # type: (List[Dict], str, str, str, str, str) -> Tuple[bool, int]
+    """Install bootstrapping line, dedup, and sync to a cron.d file. Returns (bootstrap_added, removed)."""
+    path = Path(crontab_file)
+    existing = path.read_text(encoding="utf-8") if path.exists() else ""
+    new_content, bootstrap_added, removed = _apply_install(existing, tasks, schedule, interval, user, fmt)
+    path.write_text(new_content, encoding="utf-8")
+    return bootstrap_added, removed
+
+
+def install_user_crontab(tasks, schedule, interval=DEFAULT_SYNC_INTERVAL):
+    # type: (List[Dict], str, str) -> Tuple[bool, int]
+    """Install bootstrapping line, dedup, and sync to the user crontab. Returns (bootstrap_added, removed)."""
+    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if "no crontab for" in stderr.lower():
+            existing = ""
+        else:
+            raise RuntimeError("crontab -l failed: {}".format(stderr))
+    else:
+        existing = result.stdout
+
+    new_content, bootstrap_added, removed = _apply_install(
+        existing, tasks, schedule, interval, user="", fmt=FORMAT_USER,
+    )
+
+    proc = subprocess.run(["crontab", "-"], input=new_content, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError("crontab - failed: {}".format(proc.stderr.strip()))
+    return bootstrap_added, removed
 
 
 def clear_crontab(crontab_file=DEFAULT_CRONTAB_FILE):

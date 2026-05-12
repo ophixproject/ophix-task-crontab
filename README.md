@@ -104,6 +104,35 @@ task-crontab show --schedule server-maintenance --user www-data
 task-crontab show --format user
 ```
 
+### `install`
+
+Add a bootstrapping sync line to the crontab, remove any duplicate entries that match tasks in the schedule, then run an immediate sync.
+
+```bash
+# Non-root: installs into user crontab
+task-crontab install --schedule my-schedule
+
+# Root: installs into /etc/cron.d/ophix-tasks
+task-crontab install --schedule server-maintenance
+
+# Custom sync interval and file
+task-crontab install --schedule my-schedule --interval "*/30 * * * *" --file /etc/cron.d/ophix-www --user www-data
+```
+
+| Argument | Default | Description |
+| --- | --- | --- |
+| `--schedule` | (required) | Schedule name to fetch and install |
+| `--interval` | `*/15 * * * *` | Cron expression for the bootstrapping sync line |
+| `--file` | auto | File to write; omit when non-root to use user crontab |
+| `--user` | `root` | Unix user for the sync line (crond format only) |
+| `--format` | auto | `user` or `crond`. Auto-detected from effective UID. |
+
+The bootstrapping line keeps the managed block current by running `task-crontab sync` on a schedule. It is idempotent — re-running `install` will not add a second bootstrapping line. Any cron entries outside the managed block whose commands match tasks in the nominated schedule are removed to avoid duplicates.
+
+After `import` + `install`, the workflow is complete: tasks are on the server, the managed block is written, and the crontab self-updates going forward.
+
+---
+
 ### `clear`
 
 Remove the ophix-managed block from the crontab file.
@@ -154,11 +183,11 @@ A single client may hold access to multiple Schedules simultaneously. There is n
 
 ## Automating the Sync
 
-Add the sync call as a root cron entry outside the managed block:
+The `install` command adds the bootstrapping sync line automatically. To add it manually, write a cron entry outside the managed block:
 
 ```text
 # /etc/cron.d/ophix-tasks-sync
 */15 * * * * root /opt/venv/bin/task-crontab sync --schedule server-maintenance
 ```
 
-Or define it as a task in a separate Schedule and bootstrap that Schedule's cron.d entry manually.
+Or define it as a task in a separate Schedule and run `install` for that Schedule.

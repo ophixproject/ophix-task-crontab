@@ -19,7 +19,10 @@ from ophix_task_crontab.core import (
     FORMAT_USER,
     DEFAULT_CRONTAB_FILE,
     DEFAULT_CRONTAB_USER,
+    DEFAULT_SYNC_INTERVAL,
     clear_crontab,
+    install_crontab,
+    install_user_crontab,
     parse_crontab,
     read_crontab_source,
     show_crontab,
@@ -105,6 +108,68 @@ def cmd_clear(args):
     except Exception as e:
         print("Failed to clear crontab: {}".format(e))
         sys.exit(1)
+
+
+def cmd_install(args):
+    try:
+        tasks = get_tasks(schedule=args.schedule, scheduler="cron")
+    except Exception as e:
+        print("Failed to fetch tasks: {}".format(e))
+        sys.exit(1)
+
+    fmt = _resolve_format(args)
+    file_path = args.file
+    interval = args.interval
+
+    if fmt == FORMAT_USER and not file_path:
+        try:
+            bootstrap_added, removed = install_user_crontab(tasks, args.schedule, interval=interval)
+        except Exception as e:
+            print("Failed to install into user crontab: {}".format(e))
+            sys.exit(1)
+        if bootstrap_added:
+            print("Added bootstrapping line (sync every {}).".format(interval))
+        else:
+            print("Bootstrapping line already present.")
+        if removed:
+            print("Removed {} duplicate entr{} from outside the managed block.".format(
+                removed, "y" if removed == 1 else "ies"))
+        try:
+            sync_user_crontab(tasks)
+            print("Synced {} task(s) to user crontab.".format(len(tasks)))
+        except Exception as e:
+            print("Failed to sync user crontab: {}".format(e))
+            sys.exit(1)
+    else:
+        if not file_path:
+            file_path = DEFAULT_CRONTAB_FILE
+        try:
+            bootstrap_added, removed = install_crontab(
+                tasks, args.schedule, interval=interval,
+                crontab_file=file_path, user=args.user, fmt=fmt,
+            )
+        except PermissionError:
+            print("Permission denied writing to {}. Run as root or use sudo.".format(file_path))
+            sys.exit(1)
+        except Exception as e:
+            print("Failed to install into {}: {}".format(file_path, e))
+            sys.exit(1)
+        if bootstrap_added:
+            print("Added bootstrapping line (sync every {}).".format(interval))
+        else:
+            print("Bootstrapping line already present.")
+        if removed:
+            print("Removed {} duplicate entr{} from outside the managed block.".format(
+                removed, "y" if removed == 1 else "ies"))
+        try:
+            sync_crontab(tasks, crontab_file=file_path, user=args.user, fmt=fmt)
+            print("Synced {} task(s) to {}.".format(len(tasks), file_path))
+        except PermissionError:
+            print("Permission denied writing to {}. Run as root or use sudo.".format(file_path))
+            sys.exit(1)
+        except Exception as e:
+            print("Failed to sync crontab: {}".format(e))
+            sys.exit(1)
 
 
 def cmd_import(args):
@@ -207,6 +272,23 @@ COMMANDS = {
              "help": "Crontab file to modify (default: {})".format(DEFAULT_CRONTAB_FILE)},
         ],
         "handler": cmd_clear,
+    },
+
+    "install": {
+        "help": "Add a bootstrapping sync line, de-duplicate existing entries, then sync tasks.",
+        "arguments": [
+            {"name": "--schedule", "required": True,
+             "help": "Schedule name to fetch and install"},
+            {"name": "--interval", "default": DEFAULT_SYNC_INTERVAL,
+             "help": "Cron expression for the bootstrapping sync line (default: '{}')".format(DEFAULT_SYNC_INTERVAL)},
+            {"name": "--file", "default": None,
+             "help": "Crontab file to write (default: user crontab via crontab(1) when non-root, {} when root)".format(DEFAULT_CRONTAB_FILE)},
+            {"name": "--user", "default": DEFAULT_CRONTAB_USER,
+             "help": "Unix user to run tasks as in cron.d format (default: {}, ignored in user format)".format(DEFAULT_CRONTAB_USER)},
+            {"name": "--format", "default": "",
+             "help": "Output format: 'user' or 'crond'. Default: auto-detect from effective UID."},
+        ],
+        "handler": cmd_install,
     },
 
     "import": {
