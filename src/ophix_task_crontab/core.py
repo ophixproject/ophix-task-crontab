@@ -135,16 +135,17 @@ def task_to_cron_line(task, user, fmt=FORMAT_CROND):
     Convert a task dict to one or more cron lines (as a single string).
 
     If the task has a description, a comment line is prepended.
-    Disabled tasks (enabled=False) are written as commented-out lines with [disabled].
-    Paused tasks (paused=True, enabled=True) are commented with [paused].
-    The task name suffix (#name) is only appended to active lines.
+    Paused tasks (paused=True) are written as commented-out lines with [paused].
+    The task name suffix (#name) is only appended to active (non-paused) lines.
     Tasks missing both run_at and interval produce a skip comment.
+
+    Disabled tasks (enabled=False) are never returned by the server and are
+    therefore never passed to this function.
     """
     name = task.get("name", "unnamed")
     run_at = task.get("run_at")
     interval = task.get("interval", "").strip()
     description = (task.get("description") or "").strip()
-    active = task.get("enabled", True)
     paused = task.get("paused", False)
 
     if run_at:
@@ -162,9 +163,6 @@ def task_to_cron_line(task, user, fmt=FORMAT_CROND):
         cron_line_base = "{schedule} {user} {command}".format(
             schedule=schedule, user=user, command=command,
         )
-
-    if not active:
-        return "# [disabled] {}".format(cron_line_base)
 
     parts = []
     if description:
