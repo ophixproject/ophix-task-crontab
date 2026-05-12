@@ -57,6 +57,13 @@ Output handling (`stdout_handling` / `stderr_handling`) on each task controls sh
 
 `task-client report` receives output via a pipe (single stream). If stdin is empty, no log entry is created — pass `--force` to record an entry anyway. When both stdout and stderr go to the reporter they must be merged first — `stderr=report` and `stderr=merge` produce the same shell construct. When they go to different destinations they get independent redirects.
 
+`task-client report` is a general-purpose command and can be called from any context, not just generated cron lines:
+
+```bash
+echo "Manual note: deployed v2.3 at 14:30" | task-client report 42
+some-script.sh 2>&1 | task-client report 42 --stream both
+```
+
 For non-standard handling, set both fields to `inherit` and write redirections directly in the command field — the command is written verbatim to the crontab.
 
 ---
