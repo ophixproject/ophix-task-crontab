@@ -189,11 +189,26 @@ def task_to_cron_line(task, user, fmt=FORMAT_CROND):
 
 def build_managed_block(tasks, user, fmt=FORMAT_CROND):
     # type: (List[Dict], str, str) -> str
-    """Build the full managed cron block including sentinels."""
-    lines = [SENTINEL_BEGIN]
+    """Build the full managed cron block including sentinels.
+
+    Tasks are grouped by schedule name (alphabetical). Within each group
+    the server's order is preserved (tasks arrive ordered by id/name).
+    """
+    # Group tasks by schedule name, preserving server order within each group.
+    groups = {}  # type: Dict[str, List[Dict]]
     for task in tasks:
+        schedule_name = task.get("schedule", "") or ""
+        if schedule_name not in groups:
+            groups[schedule_name] = []
+        groups[schedule_name].append(task)
+
+    lines = [SENTINEL_BEGIN]
+    for schedule_name in sorted(groups.keys()):
         lines.append("")
-        lines.append(task_to_cron_line(task, user, fmt=fmt))
+        lines.append("# --- Schedule: {} ---".format(schedule_name))
+        for task in groups[schedule_name]:
+            lines.append("")
+            lines.append(task_to_cron_line(task, user, fmt=fmt))
     lines.append("")
     lines.append(SENTINEL_END)
     return "\n".join(lines) + "\n"

@@ -23,14 +23,19 @@ task-crontab writes a sentinel-delimited block to a cron file:
 ```text
 # --- BEGIN OPHIX-TASKS (managed by ophix-task-crontab, do not edit) ---
 
+# --- Schedule: maintenance ---
+
 # Nightly backup script
 0 2 * * * root /opt/backup.sh | task-client report 1
+
+# --- Schedule: reporting ---
 
 # [paused] 30 9 * * * root /opt/report.sh
 # --- END OPHIX-TASKS ---
 ```
 
 - Content outside the sentinels is preserved
+- Tasks are grouped by schedule, sorted alphabetically by schedule name; task order within each group mirrors the server's order
 - Disabled tasks (`enabled=False`) are not returned by the server and do not appear in the block
 - `[paused]` tasks (`paused=True`) are commented out so the entry is visible but inactive
 - Descriptions appear as comment lines immediately above the cron entry; no name suffix is added
