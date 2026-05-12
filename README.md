@@ -24,27 +24,24 @@ task-crontab writes a sentinel-delimited block to a cron file:
 # --- BEGIN OPHIX-TASKS (managed by ophix-task-crontab, do not edit) ---
 
 # Nightly backup script
-0 2 * * * root /opt/backup.sh | task-client report 1  # nightly-backup
+0 2 * * * root /opt/backup.sh | task-client report 1
 
 # [paused] 30 9 * * * root /opt/report.sh
-
-# [disabled] 0 3 * * * root /opt/cleanup.sh
 # --- END OPHIX-TASKS ---
 ```
 
 - Content outside the sentinels is preserved
-- `[disabled]` tasks (`enabled=False`) — commented out, entry is not active
-- `[paused]` tasks (`paused=True`) — commented out temporarily; distinct from disabled
-- The task name suffix (`# name`) is only written on active lines
-- Descriptions appear as comment lines above active and paused entries
+- Disabled tasks (`enabled=False`) are not returned by the server and do not appear in the block
+- `[paused]` tasks (`paused=True`) are commented out so the entry is visible but inactive
+- Descriptions appear as comment lines immediately above the cron entry; no name suffix is added
 - One-off tasks (`run_at`) are converted to a pinned cron expression
 
 ### Output Format
 
 | Format | When used | Line structure |
 | --- | --- | --- |
-| `crond` | Default when run as root | `schedule username command  # name` |
-| `user` | Default when run as non-root | `schedule command  # name` |
+| `crond` | Default when run as root | `schedule username command` |
+| `user` | Default when run as non-root | `schedule command` |
 
 Override with `--format user` or `--format crond`.
 
