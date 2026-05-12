@@ -45,6 +45,10 @@ DEFAULT_CRONTAB_USER = "root"
 FORMAT_CROND = "crond"  # cron.d style: includes username field between schedule and command
 FORMAT_USER = "user"    # user crontab style: no username field
 
+# task-client lives in the same venv bin directory as this process.
+# Using the full path ensures cron (which runs with a minimal PATH) can find it.
+_TASK_CLIENT = os.path.join(os.path.dirname(sys.executable), "task-client")
+
 
 # ---------------------------------------------------------------------------
 # Cron line generation
@@ -113,17 +117,17 @@ def _build_command(task):
 
     # Both stdout and stderr go to the reporter
     if stdout == "report" and stderr in ("report", "merge"):
-        reporter = "task-client report {} --stream both".format(task_id) if task_id is not None else None
+        reporter = "{} report {} --stream both".format(_TASK_CLIENT, task_id) if task_id is not None else None
         return "{} 2>&1 | {}".format(command, reporter)
 
     # Only stdout goes to the reporter; stderr has its own redirect
     if stdout == "report":
-        reporter = "task-client report {} --stream stdout".format(task_id) if task_id is not None else None
+        reporter = "{} report {} --stream stdout".format(_TASK_CLIENT, task_id) if task_id is not None else None
         return "{}{} | {}".format(command, _stderr_suffix(stderr, log_file), reporter)
 
     # Only stderr goes to the reporter; stdout has its own redirect (or is discarded)
     if stderr == "report":
-        reporter = "task-client report {} --stream stderr".format(task_id) if task_id is not None else None
+        reporter = "{} report {} --stream stderr".format(_TASK_CLIENT, task_id) if task_id is not None else None
         return "{}{} 2>&1 1>/dev/null | {}".format(command, _stdout_suffix(stdout, log_file), reporter)
 
     # No reporting — just redirects
