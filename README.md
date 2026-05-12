@@ -55,7 +55,7 @@ Output handling (`stdout_handling` / `stderr_handling`) on each task controls sh
 | `null` | `inherit` | `command > /dev/null` |
 | `file` | `merge` | `command >> /path/to/log 2>&1` |
 
-`task-client report` receives output via a pipe (single stream). When both stdout and stderr go to the reporter they must be merged first — `stderr=report` and `stderr=merge` produce the same shell construct. When they go to different destinations they get independent redirects.
+`task-client report` receives output via a pipe (single stream). If stdin is empty, no log entry is created — pass `--force` to record an entry anyway. When both stdout and stderr go to the reporter they must be merged first — `stderr=report` and `stderr=merge` produce the same shell construct. When they go to different destinations they get independent redirects.
 
 For non-standard handling, set both fields to `inherit` and write redirections directly in the command field — the command is written verbatim to the crontab.
 
