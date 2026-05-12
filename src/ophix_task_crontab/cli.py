@@ -6,6 +6,7 @@ Command-line interface for the ophix-task-crontab Tier 2 client.
 Entry point: task-crontab (registered in pyproject.toml).
 """
 
+import os
 import sys
 import types
 
@@ -14,6 +15,8 @@ import requests
 from client_core.parser import make_main
 from ophix_task_crontab._version import __version__
 from ophix_task_crontab.core import (
+    FORMAT_CROND,
+    FORMAT_USER,
     DEFAULT_CRONTAB_FILE,
     DEFAULT_CRONTAB_USER,
     clear_crontab,
@@ -21,8 +24,26 @@ from ophix_task_crontab.core import (
     read_crontab_source,
     show_crontab,
     sync_crontab,
+    sync_user_crontab,
 )
 from task_client.core import create_task, get_tasks
+
+
+def _detect_format():
+    # type: () -> str
+    """Return FORMAT_CROND if running as root (or on Windows), FORMAT_USER otherwise."""
+    try:
+        return FORMAT_CROND if os.getuid() == 0 else FORMAT_USER
+    except AttributeError:
+        return FORMAT_CROND  # Windows has no getuid; assume crond
+
+
+def _resolve_format(args):
+    # type: (types.SimpleNamespace) -> str
+    fmt = getattr(args, "format", "")
+    if fmt in (FORMAT_CROND, FORMAT_USER):
+        return fmt
+    return _detect_format()
 
 
 # ---------------------------------------------------------------------------
@@ -36,15 +57,28 @@ def cmd_sync(args):
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
 
-    try:
-        sync_crontab(tasks, crontab_file=args.file, user=args.user)
-        print("Synced {} task(s) to {}.".format(len(tasks), args.file))
-    except PermissionError:
-        print("Permission denied writing to {}. Run as root or use sudo.".format(args.file))
-        sys.exit(1)
-    except Exception as e:
-        print("Failed to write crontab: {}".format(e))
-        sys.exit(1)
+    fmt = _resolve_format(args)
+    file_path = args.file
+
+    if fmt == FORMAT_USER and not file_path:
+        try:
+            sync_user_crontab(tasks)
+            print("Synced {} task(s) to user crontab.".format(len(tasks)))
+        except Exception as e:
+            print("Failed to update user crontab: {}".format(e))
+            sys.exit(1)
+    else:
+        if not file_path:
+            file_path = DEFAULT_CRONTAB_FILE
+        try:
+            sync_crontab(tasks, crontab_file=file_path, user=args.user, fmt=fmt)
+            print("Synced {} task(s) to {}.".format(len(tasks), file_path))
+        except PermissionError:
+            print("Permission denied writing to {}. Run as root or use sudo.".format(file_path))
+            sys.exit(1)
+        except Exception as e:
+            print("Failed to write crontab: {}".format(e))
+            sys.exit(1)
 
 
 def cmd_show(args):
@@ -54,7 +88,8 @@ def cmd_show(args):
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
 
-    print(show_crontab(tasks, user=args.user), end="")
+    fmt = _resolve_format(args)
+    print(show_crontab(tasks, user=args.user, fmt=fmt), end="")
 
 
 def cmd_clear(args):
@@ -142,10 +177,12 @@ COMMANDS = {
         "arguments": [
             {"name": "--schedule", "default": "",
              "help": "Only fetch tasks from this named schedule (default: all)"},
-            {"name": "--file", "default": DEFAULT_CRONTAB_FILE,
-             "help": "Crontab file to write (default: {})".format(DEFAULT_CRONTAB_FILE)},
+            {"name": "--file", "default": None,
+             "help": "Crontab file to write (default: user crontab via crontab(1) when non-root, {} when root)".format(DEFAULT_CRONTAB_FILE)},
             {"name": "--user", "default": DEFAULT_CRONTAB_USER,
-             "help": "Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER)},
+             "help": "Unix user to run tasks as in cron.d format (default: {}, ignored in user format)".format(DEFAULT_CRONTAB_USER)},
+            {"name": "--format", "default": "",
+             "help": "Output format: 'user' (no username field) or 'crond' (with username, for /etc/cron.d/). Default: auto-detect from effective UID."},
         ],
         "handler": cmd_sync,
     },
@@ -156,7 +193,9 @@ COMMANDS = {
             {"name": "--schedule", "default": "",
              "help": "Only fetch tasks from this named schedule (default: all)"},
             {"name": "--user", "default": DEFAULT_CRONTAB_USER,
-             "help": "Unix user to run tasks as (default: {})".format(DEFAULT_CRONTAB_USER)},
+             "help": "Unix user to run tasks as in cron.d format (default: {}, ignored in user format)".format(DEFAULT_CRONTAB_USER)},
+            {"name": "--format", "default": "",
+             "help": "Output format: 'user' or 'crond'. Default: auto-detect from effective UID."},
         ],
         "handler": cmd_show,
     },

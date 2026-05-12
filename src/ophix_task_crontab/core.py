@@ -42,6 +42,9 @@ SENTINEL_END = "# --- END OPHIX-TASKS ---"
 DEFAULT_CRONTAB_FILE = "/etc/cron.d/ophix-tasks"
 DEFAULT_CRONTAB_USER = "root"
 
+FORMAT_CROND = "crond"  # cron.d style: includes username field between schedule and command
+FORMAT_USER = "user"    # user crontab style: no username field
+
 
 # ---------------------------------------------------------------------------
 # Cron line generation
@@ -126,20 +129,23 @@ def _build_command(task):
     return "{}{}{}".format(command, _stdout_suffix(stdout, log_file), _stderr_suffix(stderr, log_file))
 
 
-def task_to_cron_line(task, user):
-    # type: (Dict, str) -> str
+def task_to_cron_line(task, user, fmt=FORMAT_CROND):
+    # type: (Dict, str, str) -> str
     """
     Convert a task dict to one or more cron lines (as a single string).
 
     If the task has a description, a comment line is prepended.
-    Disabled tasks are written as commented-out lines.
+    Disabled tasks (enabled=False) are written as commented-out lines with [disabled].
+    Paused tasks (paused=True, enabled=True) are commented with [paused].
+    The task name suffix (#name) is only appended to active lines.
     Tasks missing both run_at and interval produce a skip comment.
     """
     name = task.get("name", "unnamed")
     run_at = task.get("run_at")
     interval = task.get("interval", "").strip()
     description = (task.get("description") or "").strip()
-    enabled = task.get("enabled", True) and not task.get("paused", False)
+    active = task.get("enabled", True)
+    paused = task.get("paused", False)
 
     if run_at:
         schedule = run_at_to_cron(run_at)
@@ -149,29 +155,37 @@ def task_to_cron_line(task, user):
         return "# SKIPPED (no run_at or interval): {}".format(name)
 
     command = _build_command(task)
-    cron_line = "{schedule} {user} {command}  # {name}".format(
-        schedule=schedule, user=user, command=command, name=name,
-    )
+
+    if fmt == FORMAT_USER:
+        cron_line_base = "{schedule} {command}".format(schedule=schedule, command=command)
+    else:
+        cron_line_base = "{schedule} {user} {command}".format(
+            schedule=schedule, user=user, command=command,
+        )
+
+    if not active:
+        return "# [disabled] {}".format(cron_line_base)
 
     parts = []
-    if description and enabled:
+    if description:
         for line in description.splitlines():
             parts.append("# {}".format(line))
-    if enabled:
-        parts.append(cron_line)
+
+    if paused:
+        parts.append("# [paused] {}".format(cron_line_base))
     else:
-        parts.append("# [disabled] {}".format(cron_line))
+        parts.append("{}  # {}".format(cron_line_base, name))
 
     return "\n".join(parts)
 
 
-def build_managed_block(tasks, user):
-    # type: (List[Dict], str) -> str
+def build_managed_block(tasks, user, fmt=FORMAT_CROND):
+    # type: (List[Dict], str, str) -> str
     """Build the full managed cron block including sentinels."""
     lines = [SENTINEL_BEGIN]
     for task in tasks:
         lines.append("")
-        lines.append(task_to_cron_line(task, user))
+        lines.append(task_to_cron_line(task, user, fmt=fmt))
     lines.append("")
     lines.append(SENTINEL_END)
     return "\n".join(lines) + "\n"
@@ -207,8 +221,8 @@ def _strip_managed_block(content):
     return "".join(result), found
 
 
-def sync_crontab(tasks, crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_USER):
-    # type: (List[Dict], str, str) -> None
+def sync_crontab(tasks, crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_USER, fmt=FORMAT_CROND):
+    # type: (List[Dict], str, str, str) -> None
     """
     Write the task list to the crontab file.
 
@@ -224,8 +238,32 @@ def sync_crontab(tasks, crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_
     if stripped and not stripped.endswith("\n"):
         stripped += "\n"
 
-    new_content = stripped + build_managed_block(tasks, user)
+    new_content = stripped + build_managed_block(tasks, user, fmt=fmt)
     path.write_text(new_content, encoding="utf-8")
+
+
+def sync_user_crontab(tasks):
+    # type: (List[Dict]) -> None
+    """Write the managed block to the current user's crontab via crontab -l / crontab -."""
+    result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        if "no crontab for" in stderr.lower():
+            existing = ""
+        else:
+            raise RuntimeError("crontab -l failed: {}".format(stderr))
+    else:
+        existing = result.stdout
+
+    stripped, _ = _strip_managed_block(existing)
+    if stripped and not stripped.endswith("\n"):
+        stripped += "\n"
+
+    new_content = stripped + build_managed_block(tasks, user="", fmt=FORMAT_USER)
+
+    proc = subprocess.run(["crontab", "-"], input=new_content, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError("crontab - failed: {}".format(proc.stderr.strip()))
 
 
 def clear_crontab(crontab_file=DEFAULT_CRONTAB_FILE):
@@ -241,10 +279,10 @@ def clear_crontab(crontab_file=DEFAULT_CRONTAB_FILE):
     return found
 
 
-def show_crontab(tasks, user=DEFAULT_CRONTAB_USER):
-    # type: (List[Dict], str) -> str
+def show_crontab(tasks, user=DEFAULT_CRONTAB_USER, fmt=FORMAT_CROND):
+    # type: (List[Dict], str, str) -> str
     """Return the cron block that would be written, without writing it."""
-    return build_managed_block(tasks, user)
+    return build_managed_block(tasks, user, fmt=fmt)
 
 
 # ---------------------------------------------------------------------------

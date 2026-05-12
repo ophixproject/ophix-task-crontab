@@ -18,20 +18,35 @@ pip install ophix-task-crontab
 
 ## How It Works
 
-task-crontab writes a sentinel-delimited block to a cron.d file:
+task-crontab writes a sentinel-delimited block to a cron file:
 
 ```text
 # --- BEGIN OPHIX-TASKS (managed by ophix-task-crontab, do not edit) ---
+
 # Nightly backup script
 0 2 * * * root /opt/backup.sh | task-client report 1  # nightly-backup
-# [disabled] 30 9 * * * root /opt/cleanup.sh  # disabled-cleanup
+
+# [paused] 30 9 * * * root /opt/report.sh
+
+# [disabled] 0 3 * * * root /opt/cleanup.sh
 # --- END OPHIX-TASKS ---
 ```
 
 - Content outside the sentinels is preserved
-- Disabled tasks are written as commented-out lines (visible but not active)
-- Descriptions appear as comment lines above the cron entry
+- `[disabled]` tasks (`enabled=False`) — commented out, entry is not active
+- `[paused]` tasks (`paused=True`) — commented out temporarily; distinct from disabled
+- The task name suffix (`# name`) is only written on active lines
+- Descriptions appear as comment lines above active and paused entries
 - One-off tasks (`run_at`) are converted to a pinned cron expression
+
+### Output Format
+
+| Format | When used | Line structure |
+| --- | --- | --- |
+| `crond` | Default when run as root | `schedule username command  # name` |
+| `user` | Default when run as non-root | `schedule command  # name` |
+
+Override with `--format user` or `--format crond`.
 
 Output handling (`stdout_handling` / `stderr_handling`) on each task controls shell redirects:
 
@@ -48,21 +63,27 @@ merge  → stderr merged with stdout (2>&1)
 
 ### `sync`
 
-Fetch tasks and apply to the crontab file.
+Fetch tasks and apply to the crontab.
 
 ```bash
-task-crontab sync
+# Non-root: writes to user crontab automatically (no --file needed)
+task-crontab sync --schedule my-schedule
+
+# Root: writes to /etc/cron.d/ophix-tasks
 task-crontab sync --schedule server-maintenance
+
+# Explicit file and user (crond format)
 task-crontab sync --user www-data --file /etc/cron.d/ophix-www
 ```
 
 | Argument | Default | Description |
 | --- | --- | --- |
 | `--schedule` | (all) | Only fetch tasks from this named Schedule |
-| `--file` | `/etc/cron.d/ophix-tasks` | Crontab file to write |
-| `--user` | `root` | Unix user to run tasks as |
+| `--file` | auto | File to write; omit when non-root to update user crontab via `crontab -` |
+| `--user` | `root` | Unix user to run tasks as (crond format only) |
+| `--format` | auto | `user` or `crond`. Auto-detected from effective UID. |
 
-Requires write permission to the target file. Run as root or via sudo.
+When run as root without `--file`, writes to `/etc/cron.d/ophix-tasks`. When run as non-root without `--file`, reads and writes the user crontab via `crontab -l` / `crontab -`.
 
 ### `show`
 
@@ -71,6 +92,7 @@ Print the cron block that would be written, without writing it.
 ```bash
 task-crontab show
 task-crontab show --schedule server-maintenance --user www-data
+task-crontab show --format user
 ```
 
 ### `clear`
