@@ -292,9 +292,13 @@ def sync_user_crontab(tasks):
 def _has_bootstrap(content, schedule):
     # type: (str, str) -> bool
     """Return True if a bootstrapping sync line for this schedule already exists."""
-    marker = "task-crontab sync --schedule {}".format(schedule)
+    if schedule:
+        marker = "task-crontab sync --schedule {}".format(schedule)
+    else:
+        marker = "task-crontab sync"
     for line in content.splitlines():
-        if not line.strip().startswith("#") and marker in line:
+        stripped = line.strip()
+        if not stripped.startswith("#") and marker in stripped:
             return True
     return False
 
@@ -302,7 +306,10 @@ def _has_bootstrap(content, schedule):
 def _make_bootstrap_line(schedule, interval, user=None, fmt=FORMAT_USER):
     # type: (str, str, Optional[str], str) -> str
     """Build the bootstrapping cron line (with comment) for the given schedule."""
-    cmd = "{} sync --schedule {}".format(_TASK_CRONTAB, schedule)
+    if schedule:
+        cmd = "{} sync --schedule {}".format(_TASK_CRONTAB, schedule)
+    else:
+        cmd = "{} sync".format(_TASK_CRONTAB)
     if fmt == FORMAT_CROND:
         return "{}\n{} {} {}\n".format(_BOOTSTRAP_COMMENT, interval, user or DEFAULT_CRONTAB_USER, cmd)
     return "{}\n{} {}\n".format(_BOOTSTRAP_COMMENT, interval, cmd)

@@ -112,7 +112,7 @@ def cmd_clear(args):
 
 def cmd_install(args):
     try:
-        tasks = get_tasks(schedule=args.schedule, scheduler="cron")
+        tasks = get_tasks(schedule=args.schedule or None, scheduler="cron")
     except Exception as e:
         print("Failed to fetch tasks: {}".format(e))
         sys.exit(1)
@@ -277,8 +277,8 @@ COMMANDS = {
     "install": {
         "help": "Add a bootstrapping sync line, de-duplicate existing entries, then sync tasks.",
         "arguments": [
-            {"name": "--schedule", "required": True,
-             "help": "Schedule name to fetch and install"},
+            {"name": "--schedule", "default": "",
+             "help": "Only fetch tasks from this named schedule (default: all)"},
             {"name": "--interval", "default": DEFAULT_SYNC_INTERVAL,
              "help": "Cron expression for the bootstrapping sync line (default: '{}')".format(DEFAULT_SYNC_INTERVAL)},
             {"name": "--file", "default": None,
