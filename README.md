@@ -56,11 +56,15 @@ Output handling (`stdout_handling` / `stderr_handling`) on each task controls sh
 | --- | --- | --- |
 | `report` | `inherit` | `command \| task-client report <id> --stream stdout` |
 | `report` | `report` or `merge` | `command 2>&1 \| task-client report <id> --stream both` |
-| `null` | `report` | `command > /dev/null 2>&1 1>/dev/null \| task-client report <id> --stream stderr` |
+| `report` | `null` | `command 2>/dev/null \| task-client report <id> --stream stdout` |
+| `report` | `file` | `command 2>>/path/to/log \| task-client report <id> --stream stdout` |
+| any | `report` | `command 2>&1 >/dev/null \| task-client report <id> --stream stderr` |
 | `null` | `inherit` | `command > /dev/null` |
 | `file` | `merge` | `command >> /path/to/log 2>&1` |
 
 `task-client report` receives output via a pipe (single stream). If stdin is empty, no log entry is created — pass `--force` to record an entry anyway. When both stdout and stderr go to the reporter they must be merged first — `stderr=report` and `stderr=merge` produce the same shell construct. When they go to different destinations they get independent redirects.
+
+> **Note:** When `stderr=report`, stdout is always discarded regardless of the `stdout` setting (including `stdout=file`). The pipe requires `2>&1 >/dev/null` — the `2>&1` captures stderr into the pipe before stdout is sent to `/dev/null`, and there is no clean way to simultaneously redirect stdout elsewhere in the same construct. If you need both stdout logged to a file and stderr reported, use `stderr=file` and pipe to `task-client report` manually, or set both to `report`/`merge` and accept them interleaved.
 
 `task-client report` is a general-purpose command and can be called from any context, not just generated cron lines:
 

@@ -205,7 +205,8 @@ def build_managed_block(tasks, user, fmt=FORMAT_CROND):
             groups[schedule_name] = []
         groups[schedule_name].append(task)
 
-    lines = [SENTINEL_BEGIN]
+    now = datetime.now(dt_timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    lines = [SENTINEL_BEGIN, "# Last sync: {}".format(now)]
     for schedule_name in sorted(groups.keys()):
         lines.append("")
         lines.append("# --- Schedule: {} ---".format(schedule_name))
