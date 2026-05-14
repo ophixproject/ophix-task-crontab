@@ -100,8 +100,8 @@ def _build_command(task):
       report/inherit                → command | task-client report <id>
       report/report or report/merge → command 2>&1 | task-client report <id>
       report/<other>                → command <stderr redirect> | task-client report <id>
-      inherit/report                → command 2>&1 1>/dev/null | task-client report <id>
-      null/report                   → command 2>&1 1>/dev/null | task-client report <id>
+      */report                      → command 2>&1 >/dev/null | task-client report <id>
+                                      (stdout always discarded; 2>&1 must precede >/dev/null)
       <stdout>/null                 → command <stdout redirect> 2>/dev/null
       <stdout>/merge                → command <stdout redirect> 2>&1
       file/merge                    → command >> <log_file> 2>&1
@@ -130,10 +130,13 @@ def _build_command(task):
         reporter = "{} report {} --stream stdout".format(_TASK_CLIENT, task_id) if task_id is not None else None
         return "{}{} | {}".format(command, _stderr_suffix(stderr, log_file), reporter)
 
-    # Only stderr goes to the reporter; stdout has its own redirect (or is discarded)
+    # Only stderr goes to the reporter; stdout is discarded.
+    # Order is critical: 2>&1 must come before >/dev/null so that stderr is
+    # redirected to the pipe (current stdout) before stdout is sent to /dev/null.
+    # Inserting a stdout redirect between the command and 2>&1 breaks this.
     if stderr == "report":
         reporter = "{} report {} --stream stderr".format(_TASK_CLIENT, task_id) if task_id is not None else None
-        return "{}{} 2>&1 1>/dev/null | {}".format(command, _stdout_suffix(stdout, log_file), reporter)
+        return "{} 2>&1 >/dev/null | {}".format(command, reporter)
 
     # No reporting — just redirects
     return "{}{}{}".format(command, _stdout_suffix(stdout, log_file), _stderr_suffix(stderr, log_file))
