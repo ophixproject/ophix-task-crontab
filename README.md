@@ -133,10 +133,12 @@ task-crontab install --schedule my-schedule --interval "*/30 * * * *" --file /et
 | `--schedule` | (required) | Schedule name to fetch and install |
 | `--interval` | `*/15 * * * *` | Cron expression for the bootstrapping sync line |
 | `--file` | auto | File to write; omit when non-root to use user crontab |
-| `--user` | `root` | Unix user for the sync line (crond format only) |
+| `--user` | `root` | Unix user to run tasks as (crond format only). The bootstrap sync line always runs as root regardless of this setting. |
 | `--format` | auto | `user` or `crond`. Auto-detected from effective UID. |
 
 The bootstrapping line keeps the managed block current by running `task-crontab sync` on a schedule. It is idempotent — re-running `install` will not add a second bootstrapping line. Any cron entries outside the managed block whose commands match tasks in the nominated schedule are removed to avoid duplicates.
+
+In crond format the bootstrap sync line always runs as root (it must write to `/etc/cron.d/`). The `--user` value applies only to the task lines — tasks run as that user even if their shell is set to `/sbin/nologin`, because cron uses `/bin/sh` directly, not the configured login shell.
 
 After `import` + `install`, the workflow is complete: tasks are on the server, the managed block is written, and the crontab self-updates going forward.
 
@@ -174,17 +176,40 @@ The client must have `can_update` access to the Schedule. Tasks with a duplicate
 
 ---
 
-## Multi-Schedule and Multi-User Setup
+## Running Tasks as a Non-Root User
 
-A single host can manage multiple cron.d files, each populated from a different Schedule:
+Cron jobs in `/etc/cron.d/` include a username field that controls which user the command runs as. `task-crontab` is always run by root (to write to `/etc/cron.d/`), but the tasks themselves can run as any user. There are two ways to set this up.
+
+### Option A — Separate venv per user
+
+Install a separate venv for each user whose tasks you want to manage. Each venv has its own `.task.env` pointing to its own client registration on the task server. Run `install` from each venv as root:
 
 ```bash
-# System maintenance jobs (run as root)
-task-crontab sync --schedule server-maintenance --file /etc/cron.d/ophix-root --user root
+# From /opt/venvs/pypiserver/
+/opt/venvs/pypiserver/bin/task-crontab install --user pypiserver
 
-# Web server jobs (run as www-data)
-task-crontab sync --schedule www-data-tasks --file /etc/cron.d/ophix-www --user www-data
+# From /opt/venvs/www-data/
+/opt/venvs/www-data/bin/task-crontab install --user www-data
 ```
+
+Both write to `/etc/cron.d/ophix-tasks` by default (use `--file` to separate them). Each bootstrap sync line runs as root; each task line runs as the specified user.
+
+Good for: a small number of users, or when each user's tasks come from a separate client registration.
+
+### Option B — One venv, one file per user
+
+Use a single venv and a single client registration. Create one Schedule per user on the task server, then run `install` once per user with matching `--schedule`, `--user`, and `--file` flags:
+
+```bash
+task-crontab install --schedule pypiserver-tasks --user pypiserver --file /etc/cron.d/ophix-pypiserver
+task-crontab install --schedule www-data-tasks   --user www-data   --file /etc/cron.d/ophix-www-data
+```
+
+Each file is self-contained: its bootstrap line re-runs the same `sync` call (with the same `--schedule`, `--user`, and `--file`) every 15 minutes as root, keeping that file's managed block current.
+
+Good for: many users managed from a single venv, or when tasks for different users all come from the same task server.
+
+> **Note:** Users with no login shell (e.g. `pypiserver` with `/sbin/nologin`) work fine as cron job owners. Cron invokes commands via `/bin/sh` regardless of the user's configured login shell. The no-shell restriction only applies to interactive logins.
 
 A single client may hold access to multiple Schedules simultaneously. There is no server-enforced limit.
 
@@ -192,11 +217,13 @@ A single client may hold access to multiple Schedules simultaneously. There is n
 
 ## Automating the Sync
 
-The `install` command adds the bootstrapping sync line automatically. To add it manually, write a cron entry outside the managed block:
+The `install` command adds the bootstrapping sync line automatically. The generated line includes all flags needed for a faithful re-sync — `--user`, `--file`, and `--format` — so no manual configuration is required after `install`.
+
+To add the bootstrap line manually instead:
 
 ```text
-# /etc/cron.d/ophix-tasks-sync
-*/15 * * * * root /opt/venv/bin/task-crontab sync --schedule server-maintenance
+# /etc/cron.d/ophix-pypiserver
+*/15 * * * * root /opt/venv/bin/task-crontab sync --schedule pypiserver-tasks --user pypiserver --file /etc/cron.d/ophix-pypiserver --format crond
 ```
 
-Or define it as a task in a separate Schedule and run `install` for that Schedule.
+Or define the sync call itself as a task in a separate Schedule and run `install` for that Schedule.

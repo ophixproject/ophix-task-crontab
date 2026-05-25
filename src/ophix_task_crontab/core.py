@@ -293,29 +293,48 @@ def sync_user_crontab(tasks):
         raise RuntimeError("crontab - failed: {}".format(proc.stderr.strip()))
 
 
-def _has_bootstrap(content, schedule):
-    # type: (str, str) -> bool
-    """Return True if a bootstrapping sync line for this schedule already exists."""
+def _has_bootstrap(content, schedule, file=None):
+    # type: (str, str, Optional[str]) -> bool
+    """Return True if a bootstrapping sync line for this schedule already exists.
+
+    When a non-default file is given, also requires --file <path> to appear on
+    the matching line — this lets multiple per-user files each carry their own
+    bootstrap without being mistaken for one another.
+    """
     if schedule:
         marker = "task-crontab sync --schedule {}".format(schedule)
     else:
         marker = "task-crontab sync"
+    file_marker = "--file {}".format(file) if (file and file != DEFAULT_CRONTAB_FILE) else None
     for line in content.splitlines():
         stripped = line.strip()
         if not stripped.startswith("#") and marker in stripped:
-            return True
+            if file_marker is None or file_marker in stripped:
+                return True
     return False
 
 
-def _make_bootstrap_line(schedule, interval, user=None, fmt=FORMAT_USER):
-    # type: (str, str, Optional[str], str) -> str
-    """Build the bootstrapping cron line (with comment) for the given schedule."""
+def _make_bootstrap_line(schedule, interval, user=None, file=None, fmt=FORMAT_USER, bootstrap_user=None):
+    # type: (str, str, Optional[str], Optional[str], str, Optional[str]) -> str
+    """Build the bootstrapping cron line (with comment) for the given schedule.
+
+    In crond format the bootstrap line always runs as *bootstrap_user* (default:
+    root / DEFAULT_CRONTAB_USER) regardless of the task *user* — root is the
+    only account that can write to /etc/cron.d/.  The sync command embedded in
+    the line includes --user, --file, and --format explicitly so that the
+    periodic re-sync is identical to the original install call.
+    """
+    parts = [_TASK_CRONTAB, "sync"]
     if schedule:
-        cmd = "{} sync --schedule {}".format(_TASK_CRONTAB, schedule)
-    else:
-        cmd = "{} sync".format(_TASK_CRONTAB)
+        parts.append("--schedule {}".format(schedule))
     if fmt == FORMAT_CROND:
-        return "{}\n{} {} {}\n".format(_BOOTSTRAP_COMMENT, interval, user or DEFAULT_CRONTAB_USER, cmd)
+        parts.append("--user {}".format(user or DEFAULT_CRONTAB_USER))
+        parts.append("--file {}".format(file or DEFAULT_CRONTAB_FILE))
+        parts.append("--format crond")
+    cmd = " ".join(parts)
+    if fmt == FORMAT_CROND:
+        run_as = bootstrap_user or DEFAULT_CRONTAB_USER
+        return "{}\n{} {} {}\n".format(_BOOTSTRAP_COMMENT, interval, run_as, cmd)
     return "{}\n{} {}\n".format(_BOOTSTRAP_COMMENT, interval, cmd)
 
 
@@ -374,8 +393,8 @@ def _dedup_entries(content, task_commands):
     return "".join(result), removed
 
 
-def _apply_install(content, tasks, schedule, interval, user, fmt):
-    # type: (str, List[Dict], str, str, str, str) -> Tuple[str, bool, int]
+def _apply_install(content, tasks, schedule, interval, user, fmt, file=None, bootstrap_user=None):
+    # type: (str, List[Dict], str, str, str, str, Optional[str], Optional[str]) -> Tuple[str, bool, int]
     """
     Core install logic shared by install_crontab and install_user_crontab.
 
@@ -385,8 +404,8 @@ def _apply_install(content, tasks, schedule, interval, user, fmt):
     content, removed = _dedup_entries(content, task_commands)
 
     bootstrap_added = False
-    if not _has_bootstrap(content, schedule):
-        bootstrap = _make_bootstrap_line(schedule, interval, user=user, fmt=fmt)
+    if not _has_bootstrap(content, schedule, file=file):
+        bootstrap = _make_bootstrap_line(schedule, interval, user=user, file=file, fmt=fmt, bootstrap_user=bootstrap_user)
         content = bootstrap + "\n" + (content if content.strip() else "")
         bootstrap_added = True
 
@@ -398,12 +417,16 @@ def _apply_install(content, tasks, schedule, interval, user, fmt):
 
 
 def install_crontab(tasks, schedule, interval=DEFAULT_SYNC_INTERVAL,
-                    crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_USER, fmt=FORMAT_CROND):
-    # type: (List[Dict], str, str, str, str, str) -> Tuple[bool, int]
+                    crontab_file=DEFAULT_CRONTAB_FILE, user=DEFAULT_CRONTAB_USER, fmt=FORMAT_CROND,
+                    bootstrap_user=None):
+    # type: (List[Dict], str, str, str, str, str, Optional[str]) -> Tuple[bool, int]
     """Install bootstrapping line, dedup, and sync to a cron.d file. Returns (bootstrap_added, removed)."""
     path = Path(crontab_file)
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
-    new_content, bootstrap_added, removed = _apply_install(existing, tasks, schedule, interval, user, fmt)
+    new_content, bootstrap_added, removed = _apply_install(
+        existing, tasks, schedule, interval, user, fmt,
+        file=crontab_file, bootstrap_user=bootstrap_user,
+    )
     path.write_text(new_content, encoding="utf-8")
     return bootstrap_added, removed
 
