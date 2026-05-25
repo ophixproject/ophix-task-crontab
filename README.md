@@ -178,25 +178,34 @@ The client must have `can_update` access to the Schedule. Tasks with a duplicate
 
 ## Running Tasks as a Non-Root User
 
-Cron jobs in `/etc/cron.d/` include a username field that controls which user the command runs as. `task-crontab` is always run by root (to write to `/etc/cron.d/`), but the tasks themselves can run as any user. There are two ways to set this up.
+Cron jobs in `/etc/cron.d/` include a username field that controls which user the command runs as. `task-crontab` is always run by root (to write to `/etc/cron.d/`), but the tasks themselves can run as any user via the `--user` flag.
 
-### Option A — Separate venv per user
+### Reporting and `.task.env` access
 
-Install a separate venv for each user whose tasks you want to manage. Each venv has its own `.task.env` pointing to its own client registration on the task server. Run `install` from each venv as root:
+`task-client` reads `.task.env` to authenticate with the task server. When a task reports its output, `task-client` must be able to read this file. Keeping `.task.env` at `600` (root-readable only) is correct and recommended — service accounts should not have access to the API token.
 
-```bash
-# From /opt/venvs/pypiserver/
-/opt/venvs/pypiserver/bin/task-crontab install --user pypiserver
+When reporting is enabled on a task (`stdout_handling=report` or `stderr_handling=report`) and `--user` is set to a non-root account, task-crontab **automatically** generates the cron line so that:
 
-# From /opt/venvs/www-data/
-/opt/venvs/www-data/bin/task-crontab install --user www-data
+- The task command runs as the service user via `su -s /bin/sh`
+- The surrounding pipeline — including `task-client report` — runs as root
+
+Example generated line for `--user pypiserver` with reporting enabled:
+
+```text
+*/5 * * * * root su -s /bin/sh pypiserver -c '/opt/pypiserver/venv/bin/venv-cmds check_updates' 2>&1 | /etc/tasks/.task-env/bin/task-client report 107 --stream both
 ```
 
-Both write to `/etc/cron.d/ophix-tasks` by default (use `--file` to separate them). Each bootstrap sync line runs as root; each task line runs as the specified user.
+When reporting is **not** enabled, the task runs directly as the service user with no su wrapper:
 
-Good for: a small number of users, or when each user's tasks come from a separate client registration.
+```text
+*/5 * * * * pypiserver /opt/pypiserver/venv/bin/venv-cmds check_updates
+```
 
-### Option B — One venv, one file per user
+No extra configuration is required — the correct form is selected automatically based on the task's output handling settings.
+
+> **Note:** Users with no login shell (e.g. `pypiserver` with `/usr/sbin/nologin`) work fine. Cron and `su -s /bin/sh` both invoke commands via `/bin/sh` directly, bypassing the configured login shell. The no-shell restriction only applies to interactive logins.
+
+### One venv, one file per user
 
 Use a single venv and a single client registration. Create one Schedule per user on the task server, then run `install` once per user with matching `--schedule`, `--user`, and `--file` flags:
 
@@ -206,10 +215,6 @@ task-crontab install --schedule www-data-tasks   --user www-data   --file /etc/c
 ```
 
 Each file is self-contained: its bootstrap line re-runs the same `sync` call (with the same `--schedule`, `--user`, and `--file`) every 15 minutes as root, keeping that file's managed block current.
-
-Good for: many users managed from a single venv, or when tasks for different users all come from the same task server.
-
-> **Note:** Users with no login shell (e.g. `pypiserver` with `/sbin/nologin`) work fine as cron job owners. Cron invokes commands via `/bin/sh` regardless of the user's configured login shell. The no-shell restriction only applies to interactive logins.
 
 A single client may hold access to multiple Schedules simultaneously. There is no server-enforced limit.
 
