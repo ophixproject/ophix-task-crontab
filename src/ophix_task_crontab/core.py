@@ -90,10 +90,16 @@ def _stderr_suffix(stderr, log_file):
     return ""
 
 
-def _build_command(task):
-    # type: (Dict) -> str
+def _build_command(task, su_user=None):
+    # type: (Dict, Optional[str]) -> str
     """
     Build the full shell command string for a task, including output redirects.
+
+    When su_user is set, the task command is wrapped in
+    ``su -s /bin/sh <user> -c '...'`` so that the task runs as the service
+    user while the surrounding pipeline (including task-client reporting) runs
+    as root.  This is only applied when reporting is active — non-reporting
+    tasks run directly as the cron user with no su wrapper.
 
     stdout/stderr handling combinations:
       inherit/inherit               → bare command
@@ -120,25 +126,33 @@ def _build_command(task):
         if stderr == "report":
             stderr = "inherit"
 
+    def base():
+        # type: () -> str
+        if su_user:
+            escaped = command.replace("'", "'\\''")
+            return "su -s /bin/sh {} -c '{}'".format(su_user, escaped)
+        return command
+
     # Both stdout and stderr go to the reporter
     if stdout == "report" and stderr in ("report", "merge"):
-        reporter = "{} report {} --stream both".format(_TASK_CLIENT, task_id) if task_id is not None else None
-        return "{} 2>&1 | {}".format(command, reporter)
+        reporter = "{} report {} --stream both".format(_TASK_CLIENT, task_id)
+        return "{} 2>&1 | {}".format(base(), reporter)
 
     # Only stdout goes to the reporter; stderr has its own redirect
     if stdout == "report":
-        reporter = "{} report {} --stream stdout".format(_TASK_CLIENT, task_id) if task_id is not None else None
-        return "{}{} | {}".format(command, _stderr_suffix(stderr, log_file), reporter)
+        reporter = "{} report {} --stream stdout".format(_TASK_CLIENT, task_id)
+        return "{}{} | {}".format(base(), _stderr_suffix(stderr, log_file), reporter)
 
     # Only stderr goes to the reporter; stdout is discarded.
     # Order is critical: 2>&1 must come before >/dev/null so that stderr is
     # redirected to the pipe (current stdout) before stdout is sent to /dev/null.
     # Inserting a stdout redirect between the command and 2>&1 breaks this.
     if stderr == "report":
-        reporter = "{} report {} --stream stderr".format(_TASK_CLIENT, task_id) if task_id is not None else None
-        return "{} 2>&1 >/dev/null | {}".format(command, reporter)
+        reporter = "{} report {} --stream stderr".format(_TASK_CLIENT, task_id)
+        return "{} 2>&1 >/dev/null | {}".format(base(), reporter)
 
-    # No reporting — just redirects
+    # No reporting — just redirects; su wrapper not needed here since the cron
+    # user field already controls which account runs the command.
     return "{}{}{}".format(command, _stdout_suffix(stdout, log_file), _stderr_suffix(stderr, log_file))
 
 
@@ -168,13 +182,27 @@ def task_to_cron_line(task, user, fmt=FORMAT_CROND):
     else:
         return "# SKIPPED (no run_at or interval): {}".format(name)
 
-    command = _build_command(task)
+    # When a non-root user has reporting enabled, task-client needs to read
+    # .task.env which is only accessible to root.  Wrap the task command in
+    # su so the task still runs as the service user while the surrounding
+    # pipeline (and task-client) runs as root.
+    stdout_h = task.get("stdout_handling", "inherit")
+    stderr_h = task.get("stderr_handling", "inherit")
+    needs_su = (
+        fmt == FORMAT_CROND
+        and user not in ("", DEFAULT_CRONTAB_USER)
+        and (stdout_h == "report" or stderr_h == "report")
+    )
+    su_user = user if needs_su else None
+    cron_user = DEFAULT_CRONTAB_USER if needs_su else user
+
+    command = _build_command(task, su_user=su_user)
 
     if fmt == FORMAT_USER:
         cron_line_base = "{schedule} {command}".format(schedule=schedule, command=command)
     else:
         cron_line_base = "{schedule} {user} {command}".format(
-            schedule=schedule, user=user, command=command,
+            schedule=schedule, user=cron_user, command=command,
         )
 
     parts = []
