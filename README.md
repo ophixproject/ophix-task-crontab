@@ -205,16 +205,31 @@ No extra configuration is required — the correct form is selected automaticall
 
 > **Note:** Users with no login shell (e.g. `pypiserver` with `/usr/sbin/nologin`) work fine. Cron and `su -s /bin/sh` both invoke commands via `/bin/sh` directly, bypassing the configured login shell. The no-shell restriction only applies to interactive logins.
 
-### One venv, one file per user
+### Organising tasks across users
 
-Use a single venv and a single client registration. Create one Schedule per user on the task server, then run `install` once per user with matching `--schedule`, `--user`, and `--file` flags:
+There are two ways to separate tasks for different service accounts. Both use the same `su -s` mechanism when reporting is enabled — `.task.env` is always root-owned regardless of which approach you choose.
+
+#### Option A — One venv, one Schedule per user
+
+Use a single venv and client registration. Create one Schedule per user on the task server, then run `install` once per user with matching `--schedule`, `--user`, and `--file` flags:
 
 ```bash
 task-crontab install --schedule pypiserver-tasks --user pypiserver --file /etc/cron.d/ophix-pypiserver
 task-crontab install --schedule www-data-tasks   --user www-data   --file /etc/cron.d/ophix-www-data
 ```
 
-Each file is self-contained: its bootstrap line re-runs the same `sync` call (with the same `--schedule`, `--user`, and `--file`) every 15 minutes as root, keeping that file's managed block current.
+Each file is self-contained and self-updating. Good for many users managed from a single venv, where all tasks come from the same task server.
+
+#### Option B — Separate venv per user
+
+Install a dedicated venv for each service account with its own client registration on the task server. Run `install` from each venv:
+
+```bash
+/opt/venvs/pypiserver/bin/task-crontab install --schedule pypiserver-tasks --user pypiserver --file /etc/cron.d/ophix-pypiserver
+/opt/venvs/www-data/bin/task-crontab install    --schedule www-data-tasks   --user www-data   --file /etc/cron.d/ophix-www-data
+```
+
+Good for a small number of users, or when different service accounts need to pull tasks from different task servers — each venv has its own `.task.env` pointing to a different server URL and token.
 
 A single client may hold access to multiple Schedules simultaneously. There is no server-enforced limit.
 
