@@ -1,6 +1,6 @@
 # ophix-task-crontab
 
-Crontab Tier 2 client for [Ophix Project](https://ophixproject.com) task scheduling.
+Crontab Tier 2 client for [Ophix Project](https://ophix.io) task scheduling.
 
 Fetches the task list from an Ophix task server via `ophix-task-client` and writes a managed block to a `/etc/cron.d/` file. The entire block is reconstructed on every sync.
 
