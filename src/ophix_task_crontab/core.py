@@ -61,12 +61,18 @@ _BOOTSTRAP_COMMENT = "# Bootstrapping line — keeps the managed block below in 
 
 def run_at_to_cron(run_at_str):
     # type: (str) -> str
-    """Convert an ISO datetime string to a cron expression pinned to that minute/hour/day/month."""
+    """Convert an ISO datetime string to a cron expression in local system time.
+
+    The server returns UTC datetimes; cron interprets expressions in the OS
+    timezone. Converting to local time here means the cron entry fires at the
+    correct wall-clock time without needing CRON_TZ, so interval expressions
+    entered by operators (which are already in local time) work unchanged.
+    """
     if run_at_str.endswith("Z"):
         run_at_str = run_at_str[:-1] + "+00:00"
     dt = datetime.fromisoformat(run_at_str)
     if dt.tzinfo is not None:
-        dt = dt.astimezone(dt_timezone.utc)
+        dt = dt.astimezone()  # convert to local system timezone
     return "{} {} {} {} *".format(dt.minute, dt.hour, dt.day, dt.month)
 
 
