@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ophix-task-crontab"
-version = "2026.06.09.01"
+version = "2026.09.26.01"
 description = "Crontab Tier 2 client for ophix-tasks â€” applies task schedules to /etc/cron.d"
 readme = "README.md"
 requires-python = ">=3.7"
@@ -27,10 +27,11 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: System :: Systems Administration",
 ]
 dependencies = [
-    "ophix-client-core>=2026.06.04.01",
+    "ophix-client-core>=2026.06.16.02",
     "ophix-task-client>=2026.06.04.01",
 ]
 
