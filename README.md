@@ -1,8 +1,8 @@
 # ophix-task-crontab
 
-Crontab Tier 2 client for [Ophix Project](https://ophix.io) task scheduling.
+**Your crontab, kept honest — reconstructed from the server on every sync, not hand-edited and hoped for.**
 
-Fetches the task list from an Ophix task server via `ophix-task-client` and writes a managed block to a `/etc/cron.d/` file. The entire block is reconstructed on every sync.
+A cron file that's been edited by hand a dozen times over the years is exactly how a server ends up running jobs nobody remembers adding, with no record of who changed what or why. `ophix-task-crontab` fetches your host's task list from [Ophix](https://ophix.io) and writes it as a managed block in `/etc/cron.d/` — the whole block is rebuilt from the server every time, so what's actually running always matches what's defined centrally, and existing cron jobs can be imported in as a starting point rather than recreated by hand.
 
 ---
 
